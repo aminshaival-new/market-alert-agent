@@ -1,0 +1,28 @@
+name: Scalp Trade Alert
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Symbol to analyze (NIFTY, XAUUSD, BTCUSD, BANKNIFTY, CRUDE, SILVER, RELIANCE...)'
+        required: true
+        default: 'NIFTY'
+
+jobs:
+  scalp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Scalp Alert
+        env:
+          GREENAPI_ID:    ${{ secrets.GREENAPI_ID }}
+          GREENAPI_TOKEN: ${{ secrets.GREENAPI_TOKEN }}
+        run: node src/scalp-alert.js ${{ github.event.inputs.symbol }}
+        working-directory: .

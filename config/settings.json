@@ -1,0 +1,50 @@
+{
+  "whatsapp": {
+    "phone": "919727686181",
+    "provider": "greenapi",
+    "greenapi": {
+      "idInstance": "SET_VIA_GITHUB_SECRET",
+      "apiTokenInstance": "SET_VIA_GITHUB_SECRET"
+    }
+  },
+  "schedule": {
+    "morning_briefing_time": "07:30",
+    "monitor_interval_seconds": 180,
+    "market_open": "09:00",
+    "market_close": "15:35",
+    "timezone": "Asia/Kolkata"
+  },
+  "options": {
+    "NIFTY": {
+      "lotSize": 65,
+      "strikeStep": 50,
+      "expiryDay": 2,
+      "_expiryDayNote": "Day of week: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri — set to correct day",
+      "expiryType": "weekly",
+      "_expiryTypeNote": "weekly or monthly"
+    },
+    "BANKNIFTY": {
+      "lotSize": 35,
+      "strikeStep": 100,
+      "expiryDay": 3,
+      "expiryType": "weekly"
+    },
+    "SENSEX": {
+      "lotSize": 20,
+      "strikeStep": 100,
+      "expiryDay": 5,
+      "expiryType": "weekly"
+    }
+  },
+  "morning_briefing": {
+    "symbols": {
+      "USDINR":   { "symbol": "FX_IDC:USDINR",    "label": "Dollar/INR",   "emoji": "💵", "unit": "₹" },
+      "CRUDE":    { "symbol": "TVC:USOIL",          "label": "Crude Oil",    "emoji": "🛢️", "unit": "$" },
+      "GOLD":     { "symbol": "TVC:GOLD",           "label": "Gold",         "emoji": "🥇", "unit": "$" },
+      "SILVER":   { "symbol": "TVC:SILVER",         "label": "Silver",       "emoji": "🥈", "unit": "$" },
+      "GIFTNIFTY":{ "symbol": "NSE:GIFT_NIFTY",    "label": "GIFT Nifty",   "emoji": "🎁", "unit": "₹" },
+      "NIFTY50":  { "symbol": "NSE:NIFTY",         "label": "Nifty 50",     "emoji": "📈", "unit": "₹" },
+      "BTCUSD":   { "symbol": "BITSTAMP:BTCUSD",   "label": "Bitcoin",      "emoji": "₿",  "unit": "$" }
+    }
+  }
+}

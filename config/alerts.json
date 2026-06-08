@@ -1,0 +1,31 @@
+{
+  "_comment": "Add/remove alerts here or ask Claude to manage them for you.",
+  "_conditions": [
+    "above",
+    "below",
+    "crosses_above",
+    "crosses_below"
+  ],
+  "alerts": [
+    {
+      "id": "nifty-below-23200",
+      "symbol": "NSE:NIFTY",
+      "name": "Nifty 50",
+      "condition": "below",
+      "price": 23200,
+      "active": true,
+      "triggered": true,
+      "last_triggered": "2026-06-08T08:00:04.220Z"
+    },
+    {
+      "id": "ril-above-1300",
+      "symbol": "NSE:RELIANCE",
+      "name": "RIL (Reliance)",
+      "condition": "above",
+      "price": 1300,
+      "active": true,
+      "triggered": false,
+      "last_triggered": null
+    }
+  ]
+}

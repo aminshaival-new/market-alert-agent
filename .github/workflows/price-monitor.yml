@@ -1,0 +1,27 @@
+name: Price Alert Monitor
+
+on:
+  schedule:
+    # Every 5 min, Mon-Fri, 3:25 AM - 10:10 AM UTC = 8:55 AM - 3:40 PM IST
+    # Covers full NSE session (9:00 AM - 3:35 PM IST) with buffer
+    - cron: '*/5 3-10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Price Alert Check
+        env:
+          GREENAPI_ID:    ${{ secrets.GREENAPI_ID }}
+          GREENAPI_TOKEN: ${{ secrets.GREENAPI_TOKEN }}
+        run: node src/monitor.js
+        working-directory: .

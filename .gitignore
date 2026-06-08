@@ -1,0 +1,6 @@
+logs/
+node_modules/
+*.log
+
+# Keep settings.json but strip secrets before committing
+# Credentials live in GitHub Actions Secrets, not here

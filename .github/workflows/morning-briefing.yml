@@ -1,0 +1,26 @@
+name: Morning Market Briefing
+
+on:
+  schedule:
+    # 7:30 AM IST = 2:00 AM UTC, every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Send Morning Briefing
+        env:
+          GREENAPI_ID:    ${{ secrets.GREENAPI_ID }}
+          GREENAPI_TOKEN: ${{ secrets.GREENAPI_TOKEN }}
+        run: node src/morning-briefing.js
+        working-directory: .

@@ -1,0 +1,13 @@
+{
+  "name": "market-alert-agent",
+  "version": "1.0.0",
+  "description": "WhatsApp market alerts and morning briefings via TradingView",
+  "main": "src/monitor.js",
+  "scripts": {
+    "monitor":  "node src/monitor.js",
+    "briefing": "node src/morning-briefing.js",
+    "alerts":   "node src/manage-alerts.js",
+    "test-wa":  "node src/test-whatsapp.js"
+  },
+  "engines": { "node": ">=18.0.0" }
+}
