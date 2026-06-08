@@ -29,6 +29,11 @@ function isMarketHours() {
   return day >= 1 && day <= 5 && mins >= open && mins <= close;
 }
 
+function isExpired(alert) {
+  if (!alert.expiresAt) return false;
+  return new Date() > new Date(alert.expiresAt);
+}
+
 function conditionMet(condition, currentPrice, targetPrice) {
   switch (condition) {
     case 'above':         return currentPrice > targetPrice;
@@ -88,6 +93,15 @@ async function runCheck() {
   let changed = false;
   for (const alert of data.alerts) {
     if (!alert.active || alert.triggered) continue;
+
+    // Auto-deactivate expired alerts
+    if (isExpired(alert)) {
+      log.info(`Alert "${alert.id}" expired at ${alert.expiresAt} — deactivating.`);
+      alert.active = false;
+      changed = true;
+      continue;
+    }
+
     const p = prices[alert.symbol];
     if (!p) { log.warn(`No price data for ${alert.symbol}`); continue; }
 

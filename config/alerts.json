@@ -18,6 +18,18 @@
       "last_triggered": "2026-06-08T08:00:04.220Z"
     },
     {
+      "id": "nifty-below-23150",
+      "symbol": "NSE:NIFTY",
+      "name": "Nifty 50",
+      "condition": "below",
+      "price": 23150,
+      "active": true,
+      "triggered": false,
+      "last_triggered": null,
+      "expiresAt": "2026-06-09T10:00:00.000Z",
+      "_expiresNote": "9 Jun 2026 3:30 PM IST = 10:00 AM UTC"
+    },
+    {
       "id": "ril-above-1300",
       "symbol": "NSE:RELIANCE",
       "name": "RIL (Reliance)",
