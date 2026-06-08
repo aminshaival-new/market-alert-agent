@@ -232,10 +232,82 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// ── Green API Polling (more reliable than webhooks for self-messages) ─────────
+// Polls for new messages every 3 seconds using receiveNotification endpoint
+async function pollMessages() {
+  const settings = require('../config/settings.json');
+  const idInstance   = process.env.GREENAPI_ID    || settings.whatsapp.greenapi.idInstance;
+  const apiToken     = process.env.GREENAPI_TOKEN || settings.whatsapp.greenapi.apiTokenInstance;
+
+  if (!idInstance || idInstance.startsWith('SET_VIA')) {
+    log.info('[Poll] Green API not configured, polling disabled');
+    return;
+  }
+
+  log.info('[Poll] Starting Green API message polling every 3s...');
+
+  async function poll() {
+    try {
+      const url = `https://api.green-api.com/waInstance${idInstance}/receiveNotification/${apiToken}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return;
+
+      const body = await res.json();
+      if (!body || !body.receiptId) return; // No new notifications
+
+      const receiptId = body.receiptId;
+      const payload   = body.body;
+
+      // Always delete notification to advance the queue
+      await fetch(`https://api.green-api.com/waInstance${idInstance}/deleteNotification/${apiToken}/${receiptId}`, {
+        method: 'DELETE'
+      }).catch(() => {});
+
+      // Only process incoming text messages from the owner
+      if (!payload) return;
+      const type = payload.typeWebhook;
+      if (type !== 'incomingMessageReceived') return;
+      if (payload.messageData?.typeMessage !== 'textMessage') return;
+
+      const chatId  = payload.senderData?.chatId || '';
+      const msgId   = payload.idMessage || '';
+      const msgText = payload.messageData?.textMessageData?.textMessage || '';
+
+      // Security: owner only
+      if (chatId !== OWNER_CHATID) {
+        log.info(`[Poll] Ignored from non-owner: ${chatId}`);
+        return;
+      }
+
+      // Dedup
+      if (seenMessages.has(msgId)) return;
+      seenMessages.add(msgId);
+      if (seenMessages.size > 200) {
+        const iter = seenMessages.values();
+        for (let i = 0; i < 100; i++) seenMessages.delete(iter.next().value);
+      }
+
+      // Rate limit
+      if (isRateLimited(chatId)) return;
+
+      log.info(`[Poll] Command received: "${msgText}"`);
+      processCommand(msgText, chatId).catch(err => log.error('[Poll] Error: ' + err.message));
+
+    } catch (err) {
+      if (err.name !== 'TimeoutError') log.error('[Poll] Error: ' + err.message);
+    }
+  }
+
+  // Poll every 3 seconds
+  setInterval(poll, 3000);
+  poll(); // Run immediately on start
+}
+
+// Start polling after server starts
 server.listen(PORT, () => {
   log.info(`[Bot] ATLAS PRO WhatsApp Bot running on port ${PORT}`);
   log.info(`[Bot] Owner: ${OWNER_CHATID}`);
-  log.info('[Bot] Waiting for WhatsApp messages...');
+  pollMessages();
 });
 
 // Graceful shutdown
