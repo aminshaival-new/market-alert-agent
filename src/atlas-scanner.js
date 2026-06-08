@@ -219,12 +219,10 @@ async function run() {
   log.info(`Scan complete — ${totalSignals} quality signals found`);
 
   if (totalSignals === 0) {
-    log.info('No quality setups — sending brief update');
-    await sendWhatsApp(
-      `📋 *ATLAS PRO Scan — ${scanTime} IST*\n\nNo high-conviction setups (4+/5) at this time.\nMarket may be choppy or consolidating.\n_Next scan in 30 min_`
-    );
-    setTimeout(() => process.exit(0), 200);
-    return;
+    log.info('No quality setups — skipping WhatsApp (silent mode)');
+    // No message sent when there are no signals (saves messages + avoids noise)
+    if (require.main === module) setTimeout(() => process.exit(0), 200);
+    return { signals: 0 };
   }
 
   // Try to generate chart for top signal
@@ -260,7 +258,12 @@ async function run() {
   await sendWhatsApp(msg);
 
   log.info('ATLAS PRO scan alert sent.');
-  setTimeout(() => process.exit(0), 300);
+  if (require.main === module) setTimeout(() => process.exit(0), 300);
+  return { signals: totalSignals };
 }
 
-run().catch(err => { log.error(err.message); setTimeout(() => process.exit(1), 200); });
+if (require.main === module) {
+  run().catch(err => { log.error(err.message); setTimeout(() => process.exit(1), 200); });
+}
+
+module.exports = { run };

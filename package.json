@@ -4,6 +4,8 @@
   "description": "WhatsApp market alerts and morning briefings via TradingView",
   "main": "src/monitor.js",
   "scripts": {
+    "start":    "node src/bot-server.js",
+    "bot":      "node src/bot-server.js",
     "monitor":  "node src/monitor.js",
     "briefing": "node src/morning-briefing.js",
     "alerts":   "node src/manage-alerts.js",

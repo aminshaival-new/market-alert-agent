@@ -98,12 +98,13 @@ _ATLAS — 25yr Trader AI by Claude_`
   );
 }
 
-async function run() {
-  const arg    = (process.argv[2] || 'XAUUSD').toUpperCase();
+async function run(symbolArg) {
+  const arg    = (symbolArg || process.argv[2] || 'XAUUSD').toUpperCase();
   const meta   = SYMBOL_MAP[arg];
   if (!meta) {
     console.error(`Unknown symbol: ${arg}\nAvailable: ${Object.keys(SYMBOL_MAP).join(', ')}`);
-    process.exit(1);
+    if (!symbolArg) process.exit(1);
+    return { error: `Unknown symbol: ${arg}. Try: ${Object.keys(SYMBOL_MAP).join(', ')}` };
   }
 
   log.info(`Scalp analysis requested: ${arg} (${meta.tv})`);
@@ -177,7 +178,13 @@ async function run() {
   }
 
   log.info('Scalp alert sent for ' + arg);
-  setTimeout(() => process.exit(0), 200);
+  if (!symbolArg) setTimeout(() => process.exit(0), 200);
+  return { success: true, symbol: arg };
 }
 
-run().catch(err => { console.error(err); setTimeout(() => process.exit(1), 200); });
+// Only auto-run when called directly from CLI
+if (require.main === module) {
+  run().catch(err => { console.error(err); setTimeout(() => process.exit(1), 200); });
+}
+
+module.exports = { run, SYMBOL_MAP };

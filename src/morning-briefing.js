@@ -66,4 +66,8 @@ async function run() {
   else    log.error('Morning briefing failed ❌');
 }
 
-run().then(() => process.exit(0)).catch(err => { log.error(err.message); process.exit(1); });
+if (require.main === module) {
+  run().then(() => process.exit(0)).catch(err => { log.error(err.message); process.exit(1); });
+}
+
+module.exports = { run };
