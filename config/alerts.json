@@ -24,8 +24,8 @@
       "condition": "below",
       "price": 23150,
       "active": true,
-      "triggered": false,
-      "last_triggered": null,
+      "triggered": true,
+      "last_triggered": "2026-06-08T09:33:03.200Z",
       "expiresAt": "2026-06-09T10:00:00.000Z",
       "_expiresNote": "9 Jun 2026 3:30 PM IST = 10:00 AM UTC"
     },

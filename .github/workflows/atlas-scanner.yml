@@ -1,0 +1,30 @@
+name: ATLAS PRO Scanner
+
+on:
+  schedule:
+    # 9:30 AM IST  = 4:00 AM UTC  — Market open scan
+    - cron: '0 4 * * 1-5'
+    # 12:00 PM IST = 6:30 AM UTC  — Midday scan
+    - cron: '30 6 * * 1-5'
+    # 2:00 PM IST  = 8:30 AM UTC  — Afternoon scan
+    - cron: '30 8 * * 1-5'
+  workflow_dispatch:   # manual trigger from GitHub UI
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run ATLAS PRO Scanner
+        env:
+          GREENAPI_ID:    ${{ secrets.GREENAPI_ID }}
+          GREENAPI_TOKEN: ${{ secrets.GREENAPI_TOKEN }}
+        run: node src/atlas-scanner.js
+        working-directory: .
