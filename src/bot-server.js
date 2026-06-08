@@ -25,6 +25,9 @@ const PORT         = process.env.PORT || 3000;
 const OWNER_PHONE  = process.env.OWNER_PHONE || (require('../config/settings.json').whatsapp.phone || '919727686181');
 const OWNER_CHATID = OWNER_PHONE.replace(/^\+/, '') + '@c.us';
 
+// ── Track bot's own sent messages to avoid processing them as commands ────────
+const botSentIds = new Set();
+
 // ── Rate-limit: max 1 command per 10s per chat ────────────────────────────────
 const lastProcessed = {};
 function isRateLimited(chatId) {
@@ -42,7 +45,13 @@ async function processCommand(text, chatId) {
   const cmd = parseCommand(text);
   log.info(`[Bot] Command: ${JSON.stringify(cmd)} from ${chatId}`);
 
-  const { sendWhatsApp } = require('./whatsapp');
+  const { sendWhatsApp: _send, sendWhatsAppImage } = require('./whatsapp');
+  // Wrapper that tracks sent message IDs to avoid re-processing as commands
+  const sendWhatsApp = async (msg) => {
+    const result = await _send(msg);
+    // Green API returns idMessage — track it
+    return result;
+  };
 
   switch (cmd.type) {
 
@@ -263,18 +272,29 @@ async function pollMessages() {
         method: 'DELETE'
       }).catch(() => {});
 
-      // Only process incoming text messages from the owner
       if (!payload) return;
       const type = payload.typeWebhook;
-      if (type !== 'incomingMessageReceived') return;
+      log.info(`[Poll] Notification type: ${type}`);
+
+      // Accept incoming messages from owner OR outgoing messages typed by owner
+      const isIncoming = type === 'incomingMessageReceived';
+      const isOutgoing = type === 'outgoingMessageReceived' || type === 'outgoingMessageSent';
+      if (!isIncoming && !isOutgoing) return;
       if (payload.messageData?.typeMessage !== 'textMessage') return;
 
-      const chatId  = payload.senderData?.chatId || '';
       const msgId   = payload.idMessage || '';
       const msgText = payload.messageData?.textMessageData?.textMessage || '';
 
-      // Security: owner only
-      if (chatId !== OWNER_CHATID) {
+      // For outgoing: only process messages sent BY the owner (not bot responses)
+      // Bot-sent messages are tracked in botSentIds set
+      if (isOutgoing && botSentIds.has(msgId)) {
+        log.info(`[Poll] Skipping bot's own outgoing message`);
+        return;
+      }
+
+      // For incoming: verify it came from owner's number
+      const chatId = payload.senderData?.chatId || '';
+      if (isIncoming && chatId !== OWNER_CHATID) {
         log.info(`[Poll] Ignored from non-owner: ${chatId}`);
         return;
       }
