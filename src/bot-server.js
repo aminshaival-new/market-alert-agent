@@ -184,13 +184,20 @@ const server = http.createServer(async (req, res) => {
   const body = await readBody(req).catch(() => ({}));
 
   try {
-    // Only handle incoming text messages
-    if (body.typeWebhook !== 'incomingMessageReceived') return;
+    // Handle both incoming AND outgoing (self-message) text messages
+    const isIncoming = body.typeWebhook === 'incomingMessageReceived';
+    const isOutgoing = body.typeWebhook === 'outgoingMessageReceived' || body.typeWebhook === 'outgoingMessageSent';
+    if (!isIncoming && !isOutgoing) return;
     if (body.messageData?.typeMessage !== 'textMessage') return;
 
-    const chatId  = body.senderData?.chatId || '';
+    const chatId  = isIncoming
+      ? (body.senderData?.chatId || '')
+      : (body.senderData?.chatId || OWNER_CHATID);
     const msgId   = body.idMessage || '';
     const msgText = body.messageData?.textMessageData?.textMessage || '';
+
+    // Skip messages sent BY the bot itself (to avoid response loops)
+    if (isOutgoing && body.senderData?.sender !== OWNER_CHATID.replace('@c.us','')) return;
 
     // Security: only process messages from the owner's number
     if (chatId !== OWNER_CHATID) {
