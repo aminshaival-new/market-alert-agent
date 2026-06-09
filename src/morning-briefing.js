@@ -10,12 +10,12 @@ const settings = require('../config/settings.json');
 const SYMBOLS = settings.morning_briefing.symbols;
 
 function formatLine(meta, data) {
-  if (!data) return `${meta.emoji} *${meta.label}*: N/A`;
-  const chg  = data.change != null
+  if (!data) return `${meta.emoji} *${meta.label}*  N/A`;
+  const chg = data.change != null
     ? (data.change >= 0 ? '+' : '') + data.change.toFixed(2) + '%'
     : 'N/A';
-  const ind  = arrow(data.change);
-  return `${meta.emoji} *${meta.label}*\n   ${meta.unit}${fmt(data.close)}  ${ind} ${chg}`;
+  const ind = arrow(data.change);
+  return `${meta.emoji} *${meta.label}*  ${meta.unit}${fmt(data.close)}  ${ind} ${chg}`;
 }
 
 async function run() {
@@ -51,14 +51,10 @@ async function run() {
   }
 
   const message =
-    `🌅 *Good Morning! Market Briefing*\n` +
-    `📅 ${now}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    lines.join('\n\n') + '\n\n' +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `🧭 *Market Mood:* ${mood}\n\n` +
-    `💡 _Data from TradingView_\n` +
-    `_Market Agent by Claude_`;
+    `🌅 *Good Morning!*\n_${now}_\n\n` +
+    lines.join('\n') + '\n\n' +
+    `*Market Mood:* ${mood}\n` +
+    `_Data: TradingView · ATLAS PRO_`;
 
   log.info('Sending morning briefing...');
   const ok = await sendWhatsApp(message);

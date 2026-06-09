@@ -28,74 +28,46 @@ const SYMBOL_MAP = {
 };
 
 function buildTextMessage(a, meta, opt) {
-  const { direction, trend, phase, levels, confluence, warning, snapshot } = a;
+  const { direction, levels, confluence, snapshot } = a;
   const { entry, sl, target } = levels;
   const { close, change, rsi, vwap, atr } = snapshot;
   const u   = meta.unit;
   const dp  = meta.dp;
   const f   = v => u + Number(v).toFixed(dp);
   const chg = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
-  const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
-    weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+  const now = new Date().toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit'
+  });
 
-  const arrow     = direction === 'LONG' ? '▲' : '▼';
-  const confEmoji = { 'A+ SETUP':'🔥', 'A SETUP':'✅', 'B SETUP':'⚠️', 'AVOID':'⛔' }[confluence.quality] || '';
+  const isLong    = direction === 'LONG';
+  const dirLabel  = isLong ? '🟢 BUY' : '🔴 SELL';
+  const confEmoji = { 'A+ SETUP':'🔥', 'A SETUP':'✅', 'B SETUP':'⚠️', 'AVOID':'⛔' }[confluence.quality] || '✅';
+  const rsiLabel  = rsi < 35 ? 'Oversold' : rsi > 65 ? 'Overbought' : 'Neutral';
 
-  // Build options block if available
-  let optionsBlock = '';
+  let optBlock = '';
   if (opt) {
-    optionsBlock = `
-━━━━━━━━━━━━━━━━━━━━
-🎰 *OPTIONS TRADE*
-━━━━━━━━━━━━━━━━━━━━
-📌 Strike : *${opt.recommendedStrike} ${opt.optionType}*
-📅 Expiry : ${opt.expiry.label} (${opt.expiry.daysLeft}d left | ${opt.expiry.dayName})
-📦 Lot Size : ${opt.lotSize} units
-
-🎯 Strike Note:
-  ${opt.strikeNote}
-
-📈 Est. Premium Impact (delta ~0.45):
-  • If target hit → +${opt.estPremiumGain} pts/unit → +₹${opt.lotGain.toLocaleString('en-IN')}/lot
-  • If SL hit     → -${opt.estPremiumLoss} pts/unit → -₹${opt.lotLoss.toLocaleString('en-IN')}/lot
-
-⚡ Verify live premium on Zerodha / Upstox before entry.
-`;
+    optBlock = `\n*Options:* ${opt.recommendedStrike} ${opt.optionType} | Exp: ${opt.expiry.label} (${opt.expiry.daysLeft}d) | Lot: ${opt.lotSize}\n_Est P&L: +₹${opt.lotGain.toLocaleString('en-IN')} / -₹${opt.lotLoss.toLocaleString('en-IN')} per lot_\n`;
   }
 
-  return (
-`━━━━━━━━━━━━━━━━━━━━
-📊 *${meta.name} SCALP SETUP*
-🕐 ${now}
-━━━━━━━━━━━━━━━━━━━━
+  return `${confEmoji} *${meta.name}* — ${dirLabel}
+_${now} IST_
 
-💰 *Nifty Spot:* ${f(close)} (${chg})
-📈 *Day Range:* ${f(snapshot.low)} – ${f(snapshot.high)}
+*Price*
+Current  ${f(close)}  (${chg})
+Range    ${f(snapshot.low)} – ${f(snapshot.high)}
 
-━━━━━━━━━━━━━━━━━━━━
-${arrow} *TRADE: ${direction}* | RR 1:${levels.rr}
-━━━━━━━━━━━━━━━━━━━━
+*Trade Levels*
+Entry   →  ${f(entry)}
+Target  →  ${f(target)}  _(+${Math.abs(target-entry).toFixed(0)} pts)_
+SL      →  ${f(sl)}  _(-${Math.abs(sl-entry).toFixed(0)} pts)_
+RR      →  1 : 2.5
+${optBlock}
+*Indicators*
+RSI ${rsi.toFixed(1)} (${rsiLabel})  |  VWAP ${close > vwap ? 'Above ✅' : 'Below 🔴'}  |  ATR ${f(atr)}
 
-🎯 Index Entry  : ${f(entry)}
-✅ Index Target : ${f(target)}  (${Math.abs(target-entry).toFixed(0)} pts)
-🛑 Index SL     : ${f(sl)}  (${Math.abs(sl-entry).toFixed(0)} pts)
-${optionsBlock}
-━━━━━━━━━━━━━━━━━━━━
-📡 *INDICATORS*
-• RSI (14)  : ${rsi.toFixed(1)} ${rsi < 35 ? '⚡ Oversold' : rsi > 65 ? '🚫 Overbought' : '✅ Neutral'}
-• VWAP      : ${f(vwap)} ${close > vwap ? '(above ✅)' : '(below 🔴)'}
-• ATR       : ${f(atr)}
-• Trend     : ${trend.emoji} ${trend.label}
-• Phase     : ${phase.emoji} ${phase.phase}
-
-━━━━━━━━━━━━━━━━━━━━
-${confEmoji} *SETUP: ${confluence.quality}* (${confluence.score}/5)
-${confluence.factors.map(x => '  • ' + x).join('\n')}
-
-${warning}
-━━━━━━━━━━━━━━━━━━━━
-_ATLAS — 25yr Trader AI by Claude_`
-  );
+*Signal*  ${confEmoji} ${confluence.quality}  (${confluence.score}/5)
+_⚠️ Always verify before entry. Not financial advice._`;
 }
 
 async function run(symbolArg) {

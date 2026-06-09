@@ -196,54 +196,50 @@ async function scanMultiAsset() {
 
 // ── Build WhatsApp message ─────────────────────────────────────────────────────
 function buildMessage(foSignals, multiAsset, scanTime) {
-  const totalFO   = foSignals.LONG.length + foSignals.SHORT.length;
+  const totalFO    = foSignals.LONG.length + foSignals.SHORT.length;
   const totalOther = Object.values(multiAsset).flat().length;
+  const total      = totalFO + totalOther;
 
-  let msg = `━━━━━━━━━━━━━━━━━━━━\n`;
-  msg    += `🔥 *ATLAS PRO SCANNER*\n`;
-  msg    += `🕐 ${scanTime} IST\n`;
-  msg    += `📊 ${totalFO} F&O + ${totalOther} Multi-Asset signals\n`;
-  msg    += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let msg = `🔥 *ATLAS PRO — ${total} Signals Found*\n_${scanTime} IST_\n\n`;
 
-  // ── F&O Stocks ──────────────────────────────────────────────────────────────
+  // ── F&O BUY setups ──────────────────────────────────────────────────────────
   if (foSignals.LONG.length > 0) {
-    msg += `📈 *F&O BUY (CE) SETUPS* (${foSignals.LONG.length})\n`;
-    for (const r of foSignals.LONG.slice(0, 8)) {
-      msg += fmtSignal(r, '₹', 2) + '\n';
-      msg += fmtOptions(r, r.sym?.replace('NSE:','')) + '\n\n';
+    msg += `📈 *F&O BUY Setups (${foSignals.LONG.length})*\n`;
+    for (const r of foSignals.LONG.slice(0, 6)) {
+      const { entry, sl, target } = r.levels;
+      const ck = r.chartinkConfirmed ? ' ✦' : '';
+      msg += `\n🟢 *${r.symbolName}*${ck}  (${r.snapshot.change >= 0 ? '+' : ''}${r.snapshot.change?.toFixed(2)}%)\n`;
+      msg += `Entry ₹${entry.toFixed(2)}  •  TGT ₹${target.toFixed(2)}  •  SL ₹${sl.toFixed(2)}\n`;
+      msg += fmtOptions(r, r.sym?.replace('NSE:', '')) + '\n';
     }
   }
 
+  // ── F&O SELL setups ─────────────────────────────────────────────────────────
   if (foSignals.SHORT.length > 0) {
-    msg += `📉 *F&O SELL (PE) SETUPS* (${foSignals.SHORT.length})\n`;
-    for (const r of foSignals.SHORT.slice(0, 8)) {
-      msg += fmtSignal(r, '₹', 2) + '\n';
-      msg += fmtOptions(r, r.sym?.replace('NSE:','')) + '\n\n';
+    msg += `\n📉 *F&O SELL Setups (${foSignals.SHORT.length})*\n`;
+    for (const r of foSignals.SHORT.slice(0, 6)) {
+      const { entry, sl, target } = r.levels;
+      const ck = r.chartinkConfirmed ? ' ✦' : '';
+      msg += `\n🔴 *${r.symbolName}*${ck}  (${r.snapshot.change >= 0 ? '+' : ''}${r.snapshot.change?.toFixed(2)}%)\n`;
+      msg += `Entry ₹${entry.toFixed(2)}  •  TGT ₹${target.toFixed(2)}  •  SL ₹${sl.toFixed(2)}\n`;
+      msg += fmtOptions(r, r.sym?.replace('NSE:', '')) + '\n';
     }
   }
-
-  if (totalFO === 0) msg += `📋 No F&O setups above threshold right now.\n\n`;
 
   // ── Multi-asset ─────────────────────────────────────────────────────────────
-  const assetEmojis = { CRYPTO:'₿', FOREX:'💱', METALS:'🏅', CRUDE:'🛢️' };
-  const assetLabels = { CRYPTO:'CRYPTO', FOREX:'FOREX', METALS:'METALS', CRUDE:'CRUDE OIL' };
-
+  const assetEmojis = { CRYPTO: '₿', FOREX: '💱', METALS: '🏅', CRUDE: '🛢️' };
   for (const [cls, signals] of Object.entries(multiAsset)) {
-    if (signals.length === 0) continue;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `${assetEmojis[cls]} *${assetLabels[cls]}*\n`;
+    if (!signals.length) continue;
+    msg += `\n${assetEmojis[cls]} *${cls}*\n`;
     for (const r of signals) {
-      const dp = r.dp || 2;
-      msg += fmtSignal(r, r.unit, dp) + '\n';
-      msg += `   RSI: ${r.snapshot.rsi?.toFixed(1)} | ADX: ${r.snapshot.adx?.toFixed(1)} | ${r.label.quality} (${r.score}/5)\n\n`;
+      const { entry, sl, target } = r.levels;
+      const dir = r.direction === 'LONG' ? '🟢' : '🔴';
+      msg += `${dir} *${r.symbolName}*  Entry ${r.unit}${Number(entry).toFixed(r.dp || 2)}  TGT ${r.unit}${Number(target).toFixed(r.dp || 2)}  SL ${r.unit}${Number(sl).toFixed(r.dp || 2)}\n`;
     }
   }
 
-  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `⚡ *Strategy:* QUAD CONFLUENCE | Min Score: 4/5\n`;
-  msg += `📐 *RR:* 1:2.5 | *SL:* 0.4×ATR | *Target:* 1×ATR\n`;
-  msg += `⚠️ Always verify with broker before entry.\n`;
-  msg += `_ATLAS PRO by Claude_`;
+  msg += `\n_✦ = Chartink confirmed  •  RR 1:2.5  •  Min score 4/5_\n`;
+  msg += `_⚠️ Verify before entry. Not financial advice._`;
 
   return msg;
 }
