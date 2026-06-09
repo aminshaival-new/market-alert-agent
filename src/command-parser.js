@@ -91,7 +91,7 @@ function parseCommand(rawText) {
   }
 
   // ── FULL SCAN ───────────────────────────────────────────────────────────────
-  if (/\b(scan|fo scan|f&o scan|signals|opportunities|what.*buy|best.*stock|top.*pick|screen)\b/.test(text)) {
+  if (/\b(scan|fo scan|f&o scan|signals|opportunities|what.*buy|best.*stock|top.*pick|screen|recommend|top \d|give.*top|which.*trade|stock.*today|trade.*today|f&o.*stock|fo.*stock|nse.*stock|buy.*today|sell.*today|best.*trade|market.*opportunit|what.*trade|portfolio|watchlist)\b/.test(text)) {
     return { type: 'SCAN' };
   }
 
