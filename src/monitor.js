@@ -11,8 +11,20 @@ const log = require('./logger');
 const ALERTS_FILE  = path.join(__dirname, '../config/alerts.json');
 const SETTINGS_FILE = path.join(__dirname, '../config/settings.json');
 
-function loadAlerts()   { return JSON.parse(fs.readFileSync(ALERTS_FILE,  'utf8')); }
-function loadSettings() { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); }
+function loadAlerts() {
+  try {
+    return JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8'));
+  } catch {
+    return { alerts: [] };
+  }
+}
+function loadSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 function saveAlerts(data) {
   fs.writeFileSync(ALERTS_FILE, JSON.stringify(data, null, 2));

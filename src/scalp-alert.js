@@ -87,11 +87,16 @@ async function run(symbolArg) {
     prices = await fetchPrices([meta.tv]);
   } catch (err) {
     log.error('Price fetch failed: ' + err.message);
-    process.exit(1);
+    if (!symbolArg) process.exit(1);
+    return { error: 'Price fetch failed: ' + err.message };
   }
 
   const raw = prices[meta.tv];
-  if (!raw) { log.error('No data returned for ' + meta.tv); process.exit(1); }
+  if (!raw) {
+    log.error('No data returned for ' + meta.tv);
+    if (!symbolArg) process.exit(1);
+    return { error: `No price data for ${arg}. Symbol may be temporarily unavailable.` };
+  }
 
   // Fetch with technical indicators separately (global scanner may not have all)
   const techBody = {

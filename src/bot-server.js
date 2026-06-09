@@ -17,8 +17,13 @@
 //   "help"                            → Command list
 
 const http = require('http');
-const { parseCommand } = require('./command-parser');
-const { listAlerts, addAlert, removeAlert } = require('./alerts-api');
+const { parseCommand }                        = require('./command-parser');
+const { listAlerts, addAlert, removeAlert }   = require('./alerts-api');
+const { sendWhatsApp, sendWhatsAppImage }     = require('./whatsapp');
+const { run: runScalp }                       = require('./scalp-alert');
+const { run: runScanner }                     = require('./atlas-scanner');
+const { run: runBriefing }                    = require('./morning-briefing');
+const { runCheck: monitorRunCheck }           = require('./monitor');
 const log = require('./logger');
 
 const PORT         = process.env.PORT || 3000;
@@ -27,6 +32,13 @@ const OWNER_CHATID = OWNER_PHONE.replace(/^\+/, '') + '@c.us';
 
 // ── Track bot's own sent messages to avoid processing them as commands ────────
 const botSentIds = new Set();
+// Clean up botSentIds every 5 minutes — prevents unbounded memory growth
+setInterval(() => {
+  if (botSentIds.size > 200) {
+    const iter = botSentIds.values();
+    for (let i = 0; i < 100; i++) botSentIds.delete(iter.next().value);
+  }
+}, 5 * 60 * 1000);
 
 // ── Rate-limit: max 1 command per 10s per chat ────────────────────────────────
 const lastProcessed = {};
@@ -45,13 +57,7 @@ async function processCommand(text, chatId) {
   const cmd = parseCommand(text);
   log.info(`[Bot] Command: ${JSON.stringify(cmd)} from ${chatId}`);
 
-  const { sendWhatsApp: _send, sendWhatsAppImage } = require('./whatsapp');
-  // Wrapper that tracks sent message IDs to avoid re-processing as commands
-  const sendWhatsApp = async (msg) => {
-    const result = await _send(msg);
-    // Green API returns idMessage — track it
-    return result;
-  };
+  // sendWhatsApp and sendWhatsAppImage are top-level imports
 
   switch (cmd.type) {
 
@@ -82,9 +88,7 @@ async function processCommand(text, chatId) {
 
     case 'SCALP': {
       await sendWhatsApp(`⏳ Fetching live data for *${cmd.symbol}*...\n_Analysis takes ~10 seconds_`);
-      // Run async — don't block webhook response
-      const { run } = require('./scalp-alert');
-      const result = await run(cmd.symbol).catch(async (err) => {
+      const result = await runScalp(cmd.symbol).catch(async (err) => {
         log.error('[Bot] Scalp error: ' + err.message);
         await sendWhatsApp(`❌ Error analysing ${cmd.symbol}: ${err.message}`);
       });
@@ -94,8 +98,7 @@ async function processCommand(text, chatId) {
 
     case 'SCAN': {
       await sendWhatsApp(`⏳ *ATLAS PRO Scanner* running...\nScanning 100 F&O stocks + Crypto/Forex/Metals\n_Takes ~30 seconds_`);
-      const { run } = require('./atlas-scanner');
-      const result = await run().catch(async (err) => {
+      const result = await runScanner().catch(async (err) => {
         log.error('[Bot] Scanner error: ' + err.message);
         await sendWhatsApp(`❌ Scanner error: ${err.message}`);
       });
@@ -109,8 +112,7 @@ async function processCommand(text, chatId) {
 
     case 'BRIEFING': {
       await sendWhatsApp(`⏳ Fetching market data for briefing...`);
-      const { run } = require('./morning-briefing');
-      await run().catch(async (err) => {
+      await runBriefing().catch(async (err) => {
         log.error('[Bot] Briefing error: ' + err.message);
         await sendWhatsApp(`❌ Briefing error: ${err.message}`);
       });
@@ -244,9 +246,8 @@ const server = http.createServer(async (req, res) => {
 // ── Green API Polling (more reliable than webhooks for self-messages) ─────────
 // Polls for new messages every 3 seconds using receiveNotification endpoint
 async function pollMessages() {
-  const settings = require('../config/settings.json');
-  const idInstance   = process.env.GREENAPI_ID    || settings.whatsapp.greenapi.idInstance;
-  const apiToken     = process.env.GREENAPI_TOKEN || settings.whatsapp.greenapi.apiTokenInstance;
+  const idInstance   = process.env.GREENAPI_ID    || (require('../config/settings.json').whatsapp?.greenapi?.idInstance);
+  const apiToken     = process.env.GREENAPI_TOKEN || (require('../config/settings.json').whatsapp?.greenapi?.apiTokenInstance);
 
   if (!idInstance || idInstance.startsWith('SET_VIA')) {
     log.info('[Poll] Green API not configured, polling disabled');
@@ -318,9 +319,13 @@ async function pollMessages() {
     }
   }
 
-  // Poll every 3 seconds
-  setInterval(poll, 3000);
-  poll(); // Run immediately on start
+  // Poll with recursive setTimeout — ensures no concurrent overlapping polls
+  // (setInterval with async can start a new poll before the previous finishes)
+  async function schedulePoll() {
+    await poll();
+    setTimeout(schedulePoll, 3000);
+  }
+  schedulePoll();
 }
 
 // ── Built-in Scheduler (replaces GitHub Actions cron — Railway runs 24/7) ────
@@ -353,8 +358,7 @@ function startScheduler() {
     // ── Morning Briefing: 7:30 AM IST daily ───────────────────────────────────
     if (shouldRun('briefing', 7, 30)) {
       log.info('[Scheduler] Running morning briefing...');
-      const { run } = require('./morning-briefing');
-      run().catch(e => log.error('[Scheduler] Briefing error: ' + e.message));
+      runBriefing().catch(e => log.error('[Scheduler] Briefing error: ' + e.message));
     }
 
     // ── Price Alert Monitor: every 5 min, Mon-Fri 9:15 AM – 3:30 PM IST ──────
@@ -366,8 +370,7 @@ function startScheduler() {
       if (!lastRun[monKey]) {
         lastRun[monKey] = true;
         log.info('[Scheduler] Running price alert monitor...');
-        const { runCheck } = require('./monitor');
-        runCheck().catch(e => log.error('[Scheduler] Monitor error: ' + e.message));
+        monitorRunCheck().catch(e => log.error('[Scheduler] Monitor error: ' + e.message));
       }
     }
 
@@ -377,8 +380,7 @@ function startScheduler() {
       for (const [sh, sm] of scanTimes) {
         if (shouldRun(`atlas-${sh}:${sm}`, sh, sm)) {
           log.info(`[Scheduler] Running ATLAS PRO scanner (${sh}:${String(sm).padStart(2,'0')} IST)...`);
-          const { run } = require('./atlas-scanner');
-          run().then(r => {
+          runScanner().then(r => {
             if (r?.signals === 0) log.info('[Scheduler] Scanner: no signals this run');
           }).catch(e => log.error('[Scheduler] Scanner error: ' + e.message));
         }
@@ -391,8 +393,12 @@ function startScheduler() {
   }
 
   // Run tick every 30 seconds (catches the :00 and :30 of every minute)
-  setInterval(tick, 30000);
-  tick(); // Run immediately on start
+  // Use recursive setTimeout so tick never overlaps itself
+  async function scheduleTick() {
+    await tick().catch(e => log.error('[Scheduler] tick error: ' + e.message));
+    setTimeout(scheduleTick, 30000);
+  }
+  scheduleTick();
   log.info('[Scheduler] Built-in scheduler started (Morning 7:30AM | Scanner 9:30AM,12PM,2PM | Monitor every 5min market hours)');
 }
 

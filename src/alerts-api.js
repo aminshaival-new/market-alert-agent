@@ -1,4 +1,5 @@
 // Alerts CRUD for bot commands — reads/writes config/alerts.json
+// File format: { alerts: [...] }  ← MUST match monitor.js
 const fs   = require('fs');
 const path = require('path');
 
@@ -6,12 +7,29 @@ const ALERTS_FILE = path.join(__dirname, '../config/alerts.json');
 
 function loadAlerts() {
   try {
-    return JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8'));
-  } catch { return []; }
+    const data = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8'));
+    // Support both formats: plain array (legacy) or { alerts: [] } (standard)
+    if (Array.isArray(data)) return data;
+    return Array.isArray(data.alerts) ? data.alerts : [];
+  } catch {
+    return [];
+  }
 }
 
 function saveAlerts(alerts) {
-  fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts, null, 2));
+  // Always save in { alerts: [] } format — compatible with monitor.js
+  // Preserve existing top-level comment fields if present
+  let existing = {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8'));
+    if (!Array.isArray(raw)) {
+      // Keep metadata fields like _comment, _conditions
+      const { alerts: _, ...meta } = raw;
+      existing = meta;
+    }
+  } catch { /* fresh file */ }
+
+  fs.writeFileSync(ALERTS_FILE, JSON.stringify({ ...existing, alerts }, null, 2));
 }
 
 function listAlerts() {
@@ -62,7 +80,8 @@ function addAlert(symbol, name, condition, price, expiresAt = null) {
     condition,
     price,
     active: true,
-    triggered: false
+    triggered: false,
+    last_triggered: null
   };
   if (expiresAt) alert.expiresAt = expiresAt;
 
