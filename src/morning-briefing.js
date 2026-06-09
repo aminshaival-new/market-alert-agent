@@ -4,6 +4,7 @@
 
 const { fetchPrices, arrow, fmt } = require('./tradingview');
 const { sendWhatsApp } = require('./whatsapp');
+const { getTodayEvents, formatEvents } = require('./economic-calendar');
 const log = require('./logger');
 const settings = require('../config/settings.json');
 
@@ -23,13 +24,14 @@ async function run() {
   const symbolKeys = Object.keys(SYMBOLS);
   const tvSymbols  = symbolKeys.map(k => SYMBOLS[k].symbol);
 
-  let prices;
-  try {
-    prices = await fetchPrices(tvSymbols);
-  } catch (err) {
-    log.error('Briefing fetch failed: ' + err.message);
-    process.exit(1);
-  }
+  // Fetch prices + economic events in parallel
+  const [prices, events] = await Promise.all([
+    fetchPrices(tvSymbols).catch(err => {
+      log.error('Briefing fetch failed: ' + err.message);
+      return {};
+    }),
+    getTodayEvents()
+  ]);
 
   const now = new Date().toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
@@ -42,19 +44,25 @@ async function run() {
     return formatLine(meta, data);
   });
 
-  // Overall market mood
+  // Market mood from Nifty
   const niftyData = prices[SYMBOLS.NIFTY50.symbol];
   let mood = '🟡 Neutral';
   if (niftyData) {
-    if (niftyData.change > 0.5)  mood = '🟢 Positive — Bulls in control';
-    else if (niftyData.change < -0.5) mood = '🔴 Negative — Bears in control';
+    if (niftyData.change > 0.5)       mood = '🟢 Bullish — Buy dips';
+    else if (niftyData.change < -0.5) mood = '🔴 Bearish — Sell rallies';
   }
+
+  // Economic events section
+  const eventsText = formatEvents(events);
 
   const message =
     `🌅 *Good Morning!*\n_${now}_\n\n` +
     lines.join('\n') + '\n\n' +
-    `*Market Mood:* ${mood}\n` +
-    `_Data: TradingView · ATLAS PRO_`;
+    `*Mood:* ${mood}\n` +
+    (eventsText
+      ? `\n📅 *Today\'s Key Events*\n${eventsText}\n`
+      : '') +
+    `\n_Data: TradingView · ForexFactory · ATLAS PRO_`;
 
   log.info('Sending morning briefing...');
   const ok = await sendWhatsApp(message);
