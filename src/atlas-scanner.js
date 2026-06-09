@@ -3,12 +3,13 @@
 // Sends WhatsApp alert with all signals scored 3+/5 (only quality setups)
 // Runs on GitHub Actions: 9:30 AM, 12:00 PM, 2:00 PM IST on market days
 
-const { FO_STOCKS, MULTI_ASSET }    = require('./fo-stocks');
-const { analyze }                    = require('./strategy-engine');
-const { generateTradeChart }         = require('./chart-generator');
+const { FO_STOCKS, MULTI_ASSET }         = require('./fo-stocks');
+const { analyze }                         = require('./strategy-engine');
+const { generateTradeChart }              = require('./chart-generator');
 const { sendWhatsApp, sendWhatsAppImage } = require('./whatsapp');
-const { getOptionRecommendation }    = require('./options-helper');
-const log                            = require('./logger');
+const { getOptionRecommendation }         = require('./options-helper');
+const { getChartinkSignals }              = require('./chartink');
+const log                                 = require('./logger');
 
 const TV_COLUMNS = [
   'close','open','high','low','change','RSI','EMA10','SMA50','ATR','ADX',
@@ -99,12 +100,31 @@ function fmtOptions(result, symbolKey) {
   return `   📌 ${opt.recommendedStrike} ${opt.optionType} | Exp: ${opt.expiry.label} (${opt.expiry.daysLeft}d)`;
 }
 
-// ── Scan F&O stocks ───────────────────────────────────────────────────────────
+// ── Scan F&O stocks (Chartink pre-filter + QUAD CONFLUENCE) ───────────────────
 async function scanFO() {
   log.info('Scanning F&O stocks...');
   const signals = { LONG: [], SHORT: [] };
-  const batches = chunk(FO_STOCKS, 20);
 
+  // Step 1: Chartink pre-filter — finds technically active stocks first
+  let chartinkSymbols = null;
+  try {
+    chartinkSymbols = await getChartinkSignals();
+    log.info(`[Chartink] Pre-filter: ${chartinkSymbols.all.length} candidates (${chartinkSymbols.bullish.length} bull, ${chartinkSymbols.bearish.length} bear)`);
+  } catch (e) {
+    log.error('[Chartink] Pre-filter failed, scanning all F&O: ' + e.message);
+  }
+
+  // Step 2: Use Chartink results if available, else fall back to full F&O list
+  let stocksToScan = FO_STOCKS;
+  if (chartinkSymbols && chartinkSymbols.all.length > 0) {
+    // Only scan stocks that Chartink flagged — much faster and more accurate
+    stocksToScan = FO_STOCKS.filter(s => chartinkSymbols.all.includes(s));
+    if (stocksToScan.length === 0) stocksToScan = FO_STOCKS; // fallback if no overlap
+    log.info(`[Chartink] Scanning ${stocksToScan.length} pre-filtered stocks`);
+  }
+
+  // Step 3: Apply QUAD CONFLUENCE scoring on filtered list
+  const batches = chunk(stocksToScan, 20);
   for (const batch of batches) {
     let prices = {};
     try { prices = await fetchBatch(batch, 'india'); } catch (e) {
@@ -117,10 +137,36 @@ async function scanFO() {
       if (!d || !d.close) continue;
       const shortName = sym.replace('NSE:', '');
       const result = analyze(d, shortName);
-      if (result.score >= 4) signals[result.direction].push({ ...result, sym, unit: '₹', dp: 2 });
+
+      // Bias direction from Chartink if available
+      const chartinkBull = chartinkSymbols?.bullish?.includes(sym);
+      const chartinkBear = chartinkSymbols?.bearish?.includes(sym);
+
+      if (result.score >= 4) {
+        // Bonus: if Chartink agrees with direction, it's a stronger signal
+        const bonus = (result.direction === 'LONG' && chartinkBull) ||
+                      (result.direction === 'SHORT' && chartinkBear) ? 1 : 0;
+        signals[result.direction].push({
+          ...result,
+          sym,
+          unit: '₹',
+          dp: 2,
+          chartinkConfirmed: bonus > 0,
+          score: Math.min(result.score + bonus, 5) // cap at 5
+        });
+      }
     }
-    await new Promise(r => setTimeout(r, 300)); // rate limit
+    await new Promise(r => setTimeout(r, 300));
   }
+
+  // Sort by score desc, Chartink-confirmed first
+  for (const dir of ['LONG', 'SHORT']) {
+    signals[dir].sort((a, b) => {
+      if (b.chartinkConfirmed !== a.chartinkConfirmed) return b.chartinkConfirmed ? 1 : -1;
+      return b.score - a.score;
+    });
+  }
+
   return signals;
 }
 

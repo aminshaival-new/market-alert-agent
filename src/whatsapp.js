@@ -51,11 +51,17 @@ async function sendWhatsAppImage(imageUrl, caption) {
   const chatId = phone.replace(/^\+/, '') + '@c.us';
 
   try {
-    // Download image → base64 (works with any URL including QuickChart)
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) throw new Error(`Image fetch failed: ${imgRes.status}`);
-    const buf    = await imgRes.arrayBuffer();
-    const b64    = Buffer.from(buf).toString('base64');
+    let b64;
+    if (imageUrl.startsWith('data:image/')) {
+      // ChartImg returns base64 data URI directly — no download needed
+      b64 = imageUrl.split(',')[1];
+    } else {
+      // Download image → base64 (QuickChart URL etc.)
+      const imgRes = await fetch(imageUrl);
+      if (!imgRes.ok) throw new Error(`Image fetch failed: ${imgRes.status}`);
+      const buf = await imgRes.arrayBuffer();
+      b64 = Buffer.from(buf).toString('base64');
+    }
 
     const url = `https://api.green-api.com/waInstance${idInstance}/sendFileByBase64/${apiTokenInstance}`;
     const res = await fetch(url, {

@@ -36,6 +36,10 @@
       "expiryType": "weekly"
     }
   },
+  "chartimg": {
+    "apiKey": "SET_VIA_GITHUB_SECRET",
+    "_note": "Get free API key from https://chart-img.com — 50 charts/day free. Set CHARTIMG_KEY in Railway Variables"
+  },
   "morning_briefing": {
     "symbols": {
       "USDINR":   { "symbol": "FX_IDC:USDINR",    "label": "Dollar/INR",   "emoji": "💵", "unit": "₹" },
