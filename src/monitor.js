@@ -122,13 +122,15 @@ async function runCheck() {
 }
 
 // ── Main entry ──────────────────────────────────────────────────────────────
-const args = process.argv.slice(2);
-
-if (args.includes('--reset')) {
-  resetDailyTriggers().then(() => process.exit(0));
-} else {
-  // Single run (Task Scheduler calls this every 3 min)
-  runCheck()
-    .then(() => { log.info('Check complete.'); setTimeout(() => process.exit(0), 100); })
-    .catch(err => { log.error(err.message); setTimeout(() => process.exit(1), 100); });
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args.includes('--reset')) {
+    resetDailyTriggers().then(() => process.exit(0));
+  } else {
+    runCheck()
+      .then(() => { log.info('Check complete.'); setTimeout(() => process.exit(0), 100); })
+      .catch(err => { log.error(err.message); setTimeout(() => process.exit(1), 100); });
+  }
 }
+
+module.exports = { runCheck, resetDailyTriggers };

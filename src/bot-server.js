@@ -323,11 +323,85 @@ async function pollMessages() {
   poll(); // Run immediately on start
 }
 
+// ── Built-in Scheduler (replaces GitHub Actions cron — Railway runs 24/7) ────
+// Checks every minute if a scheduled task should run (IST time)
+function startScheduler() {
+  const lastRun = {};
+
+  function getIST() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  }
+
+  function isWeekday(d) {
+    const day = d.getDay(); return day >= 1 && day <= 5; // Mon-Fri
+  }
+
+  function shouldRun(key, h, m) {
+    const now  = getIST();
+    const match = now.getHours() === h && now.getMinutes() === m;
+    if (!match) return false;
+    // Only fire once per minute window
+    const windowKey = `${key}-${now.toDateString()}-${h}:${m}`;
+    if (lastRun[windowKey]) return false;
+    lastRun[windowKey] = true;
+    return true;
+  }
+
+  async function tick() {
+    const now = getIST();
+
+    // ── Morning Briefing: 7:30 AM IST daily ───────────────────────────────────
+    if (shouldRun('briefing', 7, 30)) {
+      log.info('[Scheduler] Running morning briefing...');
+      const { run } = require('./morning-briefing');
+      run().catch(e => log.error('[Scheduler] Briefing error: ' + e.message));
+    }
+
+    // ── Price Alert Monitor: every 5 min, Mon-Fri 9:15 AM – 3:30 PM IST ──────
+    const h = now.getHours(), mn = now.getMinutes();
+    const inMarketHours = isWeekday(now) &&
+      ((h === 9 && mn >= 15) || (h >= 10 && h <= 14) || (h === 15 && mn <= 30));
+    if (inMarketHours && mn % 5 === 0) {
+      const monKey = `monitor-${now.toDateString()}-${h}:${mn}`;
+      if (!lastRun[monKey]) {
+        lastRun[monKey] = true;
+        log.info('[Scheduler] Running price alert monitor...');
+        const { runCheck } = require('./monitor');
+        runCheck().catch(e => log.error('[Scheduler] Monitor error: ' + e.message));
+      }
+    }
+
+    // ── ATLAS PRO Scanner: 9:30 AM, 12:00 PM, 2:00 PM IST (Mon-Fri) ─────────
+    if (isWeekday(now)) {
+      const scanTimes = [[9,30], [12,0], [14,0]];
+      for (const [sh, sm] of scanTimes) {
+        if (shouldRun(`atlas-${sh}:${sm}`, sh, sm)) {
+          log.info(`[Scheduler] Running ATLAS PRO scanner (${sh}:${String(sm).padStart(2,'0')} IST)...`);
+          const { run } = require('./atlas-scanner');
+          run().then(r => {
+            if (r?.signals === 0) log.info('[Scheduler] Scanner: no signals this run');
+          }).catch(e => log.error('[Scheduler] Scanner error: ' + e.message));
+        }
+      }
+    }
+
+    // Clean up old lastRun keys (prevent memory leak)
+    const keys = Object.keys(lastRun);
+    if (keys.length > 500) keys.slice(0, 200).forEach(k => delete lastRun[k]);
+  }
+
+  // Run tick every 30 seconds (catches the :00 and :30 of every minute)
+  setInterval(tick, 30000);
+  tick(); // Run immediately on start
+  log.info('[Scheduler] Built-in scheduler started (Morning 7:30AM | Scanner 9:30AM,12PM,2PM | Monitor every 5min market hours)');
+}
+
 // Start polling after server starts
 server.listen(PORT, () => {
   log.info(`[Bot] ATLAS PRO WhatsApp Bot running on port ${PORT}`);
   log.info(`[Bot] Owner: ${OWNER_CHATID}`);
   pollMessages();
+  startScheduler();
 });
 
 // Graceful shutdown
