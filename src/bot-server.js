@@ -25,6 +25,7 @@ const { run: runScalp }                       = require('./scalp-alert');
 const { run: runScanner }                     = require('./atlas-scanner');
 const { run: runBriefing }                    = require('./morning-briefing');
 const { runCheck: monitorRunCheck }           = require('./monitor');
+const { run: runOrderflow }                   = require('./orderflow-scanner');
 const log = require('./logger');
 
 const PORT         = process.env.PORT || 3000;
@@ -464,6 +465,16 @@ function startScheduler() {
             if (r?.signals === 0) log.info('[Scheduler] Scanner: no signals this run');
           }).catch(e => log.error('[Scheduler] Scanner error: ' + e.message));
         }
+      }
+    }
+
+    // ── GOLD Orderflow Scanner: every 15m bar close, 24/7 ───────────────────
+    // (PAXG trades around the clock; signal computed on closed bars only)
+    if (mn % 15 === 1) {   // :01 :16 :31 :46 — 1 min after bar close
+      const ofKey = `orderflow-${now.toDateString()}-${h}:${mn}`;
+      if (!lastRun[ofKey]) {
+        lastRun[ofKey] = true;
+        runOrderflow().catch(e => log.error('[Scheduler] Orderflow error: ' + e.message));
       }
     }
 
