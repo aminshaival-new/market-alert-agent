@@ -268,22 +268,4 @@ async function optimize(name, bars, baseCost, session) {
   return results;
 }
 
-if (require.main === module) {
-  (async () => {
-    const what = process.argv[2] || 'both';
-    try {
-      if (what === 'btc' || what === 'both') {
-        const btc = await fetchBinance('BTCUSDT', '15m', 180);
-        // cost: spread+fees ~0.06% round trip of price
-        await optimize('BTCUSD 15m (180d Binance)', btc, btc[btc.length - 1].c * 0.0006, false);
-      }
-      if (what === 'gold' || what === 'both') {
-        const gold = await fetchYahoo('GC=F', '15m', '60d');
-        // cost: ~0.5 pts round trip (futures tighter than CFD)
-        await optimize('GOLD 15m (60d Yahoo GC=F)', gold, 0.5, true);
-      }
-    } catch (e) { console.error('ERROR:', e.message); process.exit(1); }
-  })();
-}
-
-module.exports = { simulate, fetchBinance, fetchYahoo };
+module.exports={simulate,fetchYahoo};
