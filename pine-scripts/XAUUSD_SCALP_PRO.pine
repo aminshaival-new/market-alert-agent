@@ -1,11 +1,10 @@
+//@version=6
 // ============================================================
-// ATLAS PRO — XAUUSD Scalping Strategy
-// Strategy: EMA Ribbon + RSI Momentum + VWAP + ATR Filter
-// Timeframe: 5m or 15m  |  Asset: XAUUSD (Gold)
-// Logic: Triple confluence — trend + momentum + VWAP position
-// Webhook: Sends JSON alert to Railway bot → WhatsApp
+// ATLAS PRO — XAUUSD Scalping Strategy v2
+// Logic : EMA Ribbon (8/21/55) + RSI + VWAP + ATR Risk
+// Timeframe : 5m or 15m | Asset: XAUUSD (Gold)
+// Alert : Sends JSON to Railway bot → WhatsApp + Chart
 // ============================================================
-//@version=5
 strategy("ATLAS PRO · XAUUSD Scalp", shorttitle="ATLAS·GOLD",
   overlay=true, margin_long=100, margin_short=100,
   default_qty_type=strategy.percent_of_equity, default_qty_value=1,
@@ -14,70 +13,61 @@ strategy("ATLAS PRO · XAUUSD Scalp", shorttitle="ATLAS·GOLD",
 
 // ── Inputs ───────────────────────────────────────────────────
 grp1 = "EMA Settings"
-emaFast   = input.int(8,   "Fast EMA",   group=grp1)
-emaMid    = input.int(21,  "Mid EMA",    group=grp1)
-emaSlow   = input.int(55,  "Slow EMA",   group=grp1)
+emaFast  = input.int(8,   "Fast EMA",  minval=1, group=grp1)
+emaMid   = input.int(21,  "Mid EMA",   minval=1, group=grp1)
+emaSlow  = input.int(55,  "Slow EMA",  minval=1, group=grp1)
 
 grp2 = "RSI Settings"
-rsiLen    = input.int(14,  "RSI Length", group=grp2)
-rsiOB     = input.int(70,  "Overbought", group=grp2)
-rsiOS     = input.int(30,  "Oversold",   group=grp2)
-rsiBull   = input.int(52,  "Bull Zone ≥",group=grp2)
-rsiBear   = input.int(48,  "Bear Zone ≤",group=grp2)
+rsiLen   = input.int(14,  "RSI Length",minval=1, group=grp2)
+rsiBull  = input.int(52,  "Bull Zone ≥",         group=grp2)
+rsiBear  = input.int(48,  "Bear Zone ≤",         group=grp2)
+rsiOB    = input.int(72,  "Overbought — skip",   group=grp2)
+rsiOS    = input.int(28,  "Oversold  — skip",    group=grp2)
 
-grp3 = "ATR / Risk"
-atrLen    = input.int(14,  "ATR Length", group=grp3)
-slMult    = input.float(1.2,"SL Multiplier (ATR)", group=grp3, step=0.1)
-tpMult    = input.float(2.4,"TP Multiplier (ATR)", group=grp3, step=0.1)
+grp3 = "Risk (ATR-based)"
+atrLen   = input.int(14,   "ATR Length",          group=grp3)
+slMult   = input.float(1.2,"SL × ATR", step=0.1, group=grp3)
+tpMult   = input.float(2.4,"TP × ATR", step=0.1, group=grp3)
 
 grp4 = "Filters"
-useVWAP   = input.bool(true,  "VWAP Filter",        group=grp4)
-useVolume = input.bool(true,  "Volume Spike Filter", group=grp4)
-volMult   = input.float(1.3,  "Volume Spike ×",     group=grp4, step=0.1)
-useSession= input.bool(true,  "Session Filter (London+NY)", group=grp4)
-
-grp5 = "Webhook"
-webhookURL= input.string("https://web-production-ddf64.up.railway.app/tv-alert",
-              "Railway Bot Webhook URL", group=grp5)
+useVWAP  = input.bool(true, "VWAP Filter",           group=grp4)
+useVol   = input.bool(true, "Volume Spike Filter",   group=grp4)
+volMult  = input.float(1.3, "Volume Spike ×",step=0.1,group=grp4)
+useSess  = input.bool(true, "London + NY Session Only",group=grp4)
 
 // ── Indicators ───────────────────────────────────────────────
-f   = ta.ema(close, emaFast)
-m   = ta.ema(close, emaMid)
-s   = ta.ema(close, emaSlow)
-rsi = ta.rsi(close, rsiLen)
-atr = ta.atr(atrLen)
-[_, _, vwap] = ta.vwap(hlc3)
-vol20 = ta.sma(volume, 20)
+f    = ta.ema(close, emaFast)
+m    = ta.ema(close, emaMid)
+s    = ta.ema(close, emaSlow)
+rsi  = ta.rsi(close, rsiLen)
+atr  = ta.atr(atrLen)
+vwap = ta.vwap(hlc3)
+vol20= ta.sma(volume, 20)
 
-// ── Session filter: London (3:30–12:30 IST) + NY (18:30–00:30 IST) ──────────
-istOffset = 5 * 60 + 30  // UTC+5:30 in minutes
-inLondon  = not useSession or (hour * 60 + minute >= 330  and hour * 60 + minute <= 750)
-inNY      = not useSession or (hour * 60 + minute >= 1110 and hour * 60 + minute <= 1470)
-inSession = inLondon or inNY
+// ── Session Filter (times in exchange TZ — adjust if needed) ─
+// London: 08:00–17:00 UTC | NY: 13:00–22:00 UTC
+londonOpen = time(timeframe.period, "0800-1700", "UTC")
+nyOpen     = time(timeframe.period, "1300-2200", "UTC")
+inSession  = not useSess or (not na(londonOpen) or not na(nyOpen))
 
 // ── Conditions ───────────────────────────────────────────────
-// Trend: EMA ribbon aligned
-bullTrend = f > m and m > s
-bearTrend = f < m and m < s
+bullTrend  = f > m and m > s
+bearTrend  = f < m and m < s
 
-// VWAP position
-aboveVWAP = not useVWAP or close > vwap
-belowVWAP = not useVWAP or close < vwap
+aboveVWAP  = not useVWAP or close > vwap
+belowVWAP  = not useVWAP or close < vwap
 
-// Volume spike
-volSpike  = not useVolume or volume > vol20 * volMult
+volSpike   = not useVol or volume > vol20 * volMult
 
-// RSI momentum
-rsiBullish = rsi >= rsiBull and rsi < rsiOB
-rsiBearish = rsi <= rsiBear and rsi > rsiOS
+rsiBullOK  = rsi >= rsiBull and rsi < rsiOB
+rsiBearOK  = rsi <= rsiBear and rsi > rsiOS
 
-// EMA crossover triggers
-bullCross = ta.crossover(f, m)
-bearCross = ta.crossunder(f, m)
+bullCross  = ta.crossover(f, m)
+bearCross  = ta.crossunder(f, m)
 
 // ── Entry Signals ────────────────────────────────────────────
-longEntry  = bullCross and bullTrend and aboveVWAP and rsiBullish and volSpike and inSession
-shortEntry = bearCross and bearTrend and belowVWAP and rsiBearish and volSpike and inSession
+longEntry  = bullCross and bullTrend and aboveVWAP and rsiBullOK and volSpike and inSession
+shortEntry = bearCross and bearTrend and belowVWAP and rsiBearOK and volSpike and inSession
 
 // ── Risk Levels ──────────────────────────────────────────────
 longSL  = close - atr * slMult
@@ -89,53 +79,30 @@ shortTP = close - atr * tpMult
 if longEntry
     strategy.entry("LONG", strategy.long)
     strategy.exit("LONG_XT", "LONG", stop=longSL, limit=longTP)
+    alertMsg = '{"symbol":"XAUUSD","action":"BUY","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(math.round(longSL, 2), "#.##") + ',"tp":' + str.tostring(math.round(longTP, 2), "#.##") + ',"reason":"EMA Ribbon Bull + RSI ' + str.tostring(math.round(rsi, 1)) + ' + Above VWAP","strategy":"GOLD_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    alert(alertMsg, alert.freq_once_per_bar_close)
 
 if shortEntry
     strategy.entry("SHORT", strategy.short)
     strategy.exit("SHORT_XT", "SHORT", stop=shortSL, limit=shortTP)
-
-// ── Alerts (JSON → Railway Bot → WhatsApp) ───────────────────
-// Set TradingView alert: "Once Per Bar Close" + Webhook URL below
-alertcondition(longEntry, title="GOLD BUY Signal",
-  message='{"symbol":"XAUUSD","action":"BUY","price":{{close}},"sl":' +
-    str.tostring(math.round(close - atr * slMult, 2)) +
-    ',"tp":' + str.tostring(math.round(close + atr * tpMult, 2)) +
-    ',"reason":"EMA8>EMA21>EMA55 + RSI ' + str.tostring(math.round(rsi,1)) +
-    ' + Above VWAP","strategy":"GOLD_SCALP_PRO","interval":"{{interval}}"}')
-
-alertcondition(shortEntry, title="GOLD SELL Signal",
-  message='{"symbol":"XAUUSD","action":"SELL","price":{{close}},"sl":' +
-    str.tostring(math.round(close + atr * slMult, 2)) +
-    ',"tp":' + str.tostring(math.round(close - atr * tpMult, 2)) +
-    ',"reason":"EMA8<EMA21<EMA55 + RSI ' + str.tostring(math.round(rsi,1)) +
-    ' + Below VWAP","strategy":"GOLD_SCALP_PRO","interval":"{{interval}}"}')
+    alertMsg = '{"symbol":"XAUUSD","action":"SELL","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(math.round(shortSL, 2), "#.##") + ',"tp":' + str.tostring(math.round(shortTP, 2), "#.##") + ',"reason":"EMA Ribbon Bear + RSI ' + str.tostring(math.round(rsi, 1)) + ' + Below VWAP","strategy":"GOLD_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    alert(alertMsg, alert.freq_once_per_bar_close)
 
 // ── Visuals ──────────────────────────────────────────────────
-plot(f, "EMA 8",  color=color.new(color.lime, 0),   linewidth=1)
-plot(m, "EMA 21", color=color.new(color.yellow, 0), linewidth=2)
-plot(s, "EMA 55", color=color.new(color.orange, 0), linewidth=2)
-plot(vwap, "VWAP", color=color.new(color.purple, 0), linewidth=2, style=plot.style_stepline)
+plot(f,    "EMA 8",  color=color.new(color.lime,   0), linewidth=1)
+plot(m,    "EMA 21", color=color.new(color.yellow, 0), linewidth=2)
+plot(s,    "EMA 55", color=color.new(color.orange, 0), linewidth=2)
+plot(vwap, "VWAP",   color=color.new(color.purple, 0), linewidth=2, style=plot.style_stepline)
 
-// Entry/Exit markers
-plotshape(longEntry,  "BUY",  shape.labelup,   location.belowbar, color.lime,   text="BUY",  textcolor=color.black, size=size.normal)
-plotshape(shortEntry, "SELL", shape.labeldown, location.abovebar, color.red,    text="SELL", textcolor=color.white, size=size.normal)
+// BUY / SELL labels
+plotshape(longEntry,  "BUY",  shape.labelup,   location.belowbar, color.lime, text="BUY",  textcolor=color.black, size=size.normal)
+plotshape(shortEntry, "SELL", shape.labeldown, location.abovebar, color.red,  text="SELL", textcolor=color.white, size=size.normal)
 
-// SL / TP lines on signal bars
-longSLLine = longEntry ? longSL : na
-longTPLine = longEntry ? longTP : na
-shortSLLine= shortEntry ? shortSL : na
-shortTPLine= shortEntry ? shortTP : na
+// SL & TP on signal bar
+plot(longEntry  ? longSL  : na, "Long SL",  color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
+plot(longEntry  ? longTP  : na, "Long TP",  color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
+plot(shortEntry ? shortSL : na, "Short SL", color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
+plot(shortEntry ? shortTP : na, "Short TP", color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
 
-plot(longSLLine,  "Long SL",  color=color.new(color.red,   30), style=plot.style_cross, linewidth=2)
-plot(longTPLine,  "Long TP",  color=color.new(color.lime,  30), style=plot.style_cross, linewidth=2)
-plot(shortSLLine, "Short SL", color=color.new(color.red,   30), style=plot.style_cross, linewidth=2)
-plot(shortTPLine, "Short TP", color=color.new(color.lime,  30), style=plot.style_cross, linewidth=2)
-
-// Background: trend color
-bgcolor(bullTrend ? color.new(color.lime, 95) : bearTrend ? color.new(color.red, 95) : na,
-  title="Trend Background")
-
-// RSI panel
-hline(rsiOB, "OB", color.red,    linestyle=hline.style_dashed)
-hline(rsiOS, "OS", color.lime,   linestyle=hline.style_dashed)
-hline(50,    "Mid", color.gray,  linestyle=hline.style_dotted)
+// Trend background
+bgcolor(bullTrend ? color.new(color.lime, 95) : bearTrend ? color.new(color.red, 95) : na, title="Trend BG")

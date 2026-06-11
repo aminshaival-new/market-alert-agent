@@ -1,13 +1,10 @@
+//@version=6
 // ============================================================
-// ATLAS PRO — BTCUSD Scalping Strategy
-// Strategy: Supertrend + BB Squeeze + Volume Delta + RSI
-// Timeframe: 5m or 15m  |  Asset: BTCUSD
-// Logic: Volatility squeeze breakout + momentum confirmation
-// Proven: Squeeze Momentum + Supertrend combo is one of the
-//   highest win-rate approaches on BTC (documented 75-85% WR)
-// Webhook: Sends JSON alert to Railway bot → WhatsApp
+// ATLAS PRO — BTCUSD Scalping Strategy v2
+// Logic : Supertrend + BB Squeeze Breakout + RSI + VWAP
+// Timeframe : 5m or 15m | Asset: BTCUSD
+// Alert : Sends JSON to Railway bot → WhatsApp + Chart
 // ============================================================
-//@version=5
 strategy("ATLAS PRO · BTCUSD Scalp", shorttitle="ATLAS·BTC",
   overlay=true, margin_long=100, margin_short=100,
   default_qty_type=strategy.percent_of_equity, default_qty_value=1,
@@ -16,87 +13,83 @@ strategy("ATLAS PRO · BTCUSD Scalp", shorttitle="ATLAS·BTC",
 
 // ── Inputs ───────────────────────────────────────────────────
 grp1 = "Supertrend"
-stMult  = input.float(2.0, "ST Multiplier", group=grp1, step=0.1)
-stLen   = input.int(10,    "ST ATR Length", group=grp1)
+stMult  = input.float(2.0, "ST Multiplier", step=0.1, group=grp1)
+stLen   = input.int(10,    "ST ATR Length", minval=1, group=grp1)
 
-grp2 = "Bollinger Bands (Squeeze)"
-bbLen   = input.int(20,    "BB Length",     group=grp2)
-bbMult  = input.float(2.0, "BB Mult",       group=grp2, step=0.1)
-kcLen   = input.int(20,    "KC Length",     group=grp2)
-kcMult  = input.float(1.5, "KC Mult",       group=grp2, step=0.1)
+grp2 = "BB Squeeze"
+bbLen   = input.int(20,    "BB Length",  minval=1,  group=grp2)
+bbMult  = input.float(2.0, "BB Mult",   step=0.1,  group=grp2)
+kcLen   = input.int(20,    "KC Length",  minval=1,  group=grp2)
+kcMult  = input.float(1.5, "KC Mult",   step=0.1,  group=grp2)
 
 grp3 = "RSI"
-rsiLen  = input.int(14,    "RSI Length",    group=grp3)
-rsiBull = input.int(50,    "Bull ≥",        group=grp3)
-rsiBear = input.int(50,    "Bear ≤",        group=grp3)
+rsiLen  = input.int(14,    "RSI Length", minval=1,  group=grp3)
+rsiBull = input.int(50,    "Bull ≥",                group=grp3)
+rsiBear = input.int(50,    "Bear ≤",                group=grp3)
 
 grp4 = "Risk"
-atrLen  = input.int(14,    "ATR Length",    group=grp4)
-slMult  = input.float(1.5, "SL × ATR",     group=grp4, step=0.1)
-tpMult  = input.float(3.0, "TP × ATR",     group=grp4, step=0.1)
+atrLen  = input.int(14,    "ATR Length", minval=1,  group=grp4)
+slMult  = input.float(1.5, "SL × ATR", step=0.1,  group=grp4)
+tpMult  = input.float(3.0, "TP × ATR", step=0.1,  group=grp4)
 
 grp5 = "Filters"
-useVolume  = input.bool(true,  "Volume Filter",        group=grp5)
-volMult    = input.float(1.2,  "Volume Spike ×",       group=grp5, step=0.1)
-useSession = input.bool(true,  "Active Hours Only",    group=grp5)
+useVol  = input.bool(true,  "Volume Filter",     group=grp5)
+volMult = input.float(1.2,  "Volume Spike ×", step=0.1, group=grp5)
+useSess = input.bool(true,  "Active Hours Only", group=grp5)
 
 // ── Supertrend ───────────────────────────────────────────────
 [stVal, stDir] = ta.supertrend(stMult, stLen)
-stBull = stDir < 0   // price above supertrend = bullish
+stBull = stDir < 0
 stBear = stDir > 0
 
-// ── Bollinger Squeeze ────────────────────────────────────────
-// Squeeze = BB inside KC → low volatility coiling → breakout incoming
-basis = ta.sma(close, bbLen)
-dev   = bbMult * ta.stdev(close, bbLen)
-bbUpper = basis + dev
-bbLower = basis - dev
+// ── Bollinger Bands ───────────────────────────────────────────
+bbBasis = ta.sma(close, bbLen)
+bbDev   = bbMult * ta.stdev(close, bbLen)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
 
+// ── Keltner Channels (for squeeze detection) ─────────────────
 kcBasis = ta.ema(close, kcLen)
 kcRange = ta.atr(kcLen) * kcMult
 kcUpper = kcBasis + kcRange
 kcLower = kcBasis - kcRange
 
-squeeze    = bbLower > kcLower and bbUpper < kcUpper   // in squeeze
-sqzRelease = not squeeze and squeeze[1]                  // squeeze just released
+// Squeeze: BB inside KC = low volatility coiling
+squeeze    = bbLower > kcLower and bbUpper < kcUpper
+sqzRelease = not squeeze and squeeze[1]
 
-// Momentum direction in squeeze (LazyBear style)
-delta = ta.linreg(close - math.avg(math.avg(ta.highest(high, kcLen), ta.lowest(low, kcLen)), ta.sma(close, kcLen)), kcLen, 0)
-momUp   = delta > 0 and delta > delta[1]
-momDown = delta < 0 and delta < delta[1]
+// Momentum oscillator (LazyBear squeeze momentum style)
+highestHigh = ta.highest(high, kcLen)
+lowestLow   = ta.lowest(low, kcLen)
+midAvg      = math.avg(math.avg(highestHigh, lowestLow), ta.sma(close, kcLen))
+delta       = ta.linreg(close - midAvg, kcLen, 0)
+momUp       = delta > 0 and delta > delta[1]
+momDown     = delta < 0 and delta < delta[1]
 
-// ── RSI ──────────────────────────────────────────────────────
-rsi = ta.rsi(close, rsiLen)
+// ── RSI & VWAP ────────────────────────────────────────────────
+rsi  = ta.rsi(close, rsiLen)
+vwap = ta.vwap(hlc3)
+atr  = ta.atr(atrLen)
 
-// ── VWAP ─────────────────────────────────────────────────────
-[_, _, vwap] = ta.vwap(hlc3)
-
-// ── Volume ───────────────────────────────────────────────────
+// ── Volume ────────────────────────────────────────────────────
 vol20    = ta.sma(volume, 20)
-volSpike = not useVolume or volume > vol20 * volMult
+volSpike = not useVol or volume > vol20 * volMult
 
-// ── ATR for risk levels ───────────────────────────────────────
-atr = ta.atr(atrLen)
-
-// ── Session: BTC most active = Asian open + US session ────────
-// London: 13:30–21:30 IST | NY: 18:30–02:30 IST | Asia: 05:30–10:00 IST
-h = hour * 60 + minute
-activeHours = not useSession or
-  (h >= 330 and h <= 600) or   // Asia open
-  (h >= 810 and h <= 1290) or  // London
-  (h >= 1110 and h <= 1470)    // NY
+// ── Session (BTC: Asia + London + NY) ─────────────────────────
+asiaOpen   = time(timeframe.period, "0000-0800", "UTC")
+londonOpen = time(timeframe.period, "0700-1600", "UTC")
+nyOpen     = time(timeframe.period, "1300-2200", "UTC")
+inSession  = not useSess or (not na(asiaOpen) or not na(londonOpen) or not na(nyOpen))
 
 // ── Entry Conditions ─────────────────────────────────────────
-// BUY: supertrend bull + squeeze release with upward momentum + RSI > 50 + above VWAP
-longEntry  = stBull and sqzRelease and momUp   and rsi >= rsiBull and close > vwap and volSpike and activeHours
-shortEntry = stBear and sqzRelease and momDown and rsi <= rsiBear and close < vwap and volSpike and activeHours
+longBreak  = stBull and sqzRelease and momUp   and rsi >= rsiBull and close > vwap and volSpike and inSession
+shortBreak = stBear and sqzRelease and momDown and rsi <= rsiBear and close < vwap and volSpike and inSession
 
-// Also catch mid-trend continuation (no squeeze needed — strong momentum only)
-longCont   = stBull and not squeeze and momUp   and ta.crossover(delta, 0)  and close > vwap and volSpike
-shortCont  = stBear and not squeeze and momDown and ta.crossunder(delta, 0) and close < vwap and volSpike
+longCont   = stBull and not squeeze and momUp   and ta.crossover(delta, 0)  and close > vwap and volSpike and inSession
+shortCont  = stBear and not squeeze and momDown and ta.crossunder(delta, 0) and close < vwap and volSpike and inSession
 
-longSignal  = longEntry  or longCont
-shortSignal = shortEntry or shortCont
+longSignal  = longBreak  or longCont
+shortSignal = shortBreak or shortCont
 
 // ── Risk Levels ──────────────────────────────────────────────
 longSL  = close - atr * slMult
@@ -104,69 +97,55 @@ longTP  = close + atr * tpMult
 shortSL = close + atr * slMult
 shortTP = close - atr * tpMult
 
-// ── Strategy ─────────────────────────────────────────────────
-if longSignal  and strategy.position_size <= 0
-    strategy.entry("LONG",  strategy.long)
-    strategy.exit("LONG_XT",  "LONG",  stop=longSL,  limit=longTP)
+// ── Strategy Execution ───────────────────────────────────────
+if longSignal and strategy.position_size <= 0
+    strategy.entry("LONG", strategy.long)
+    strategy.exit("LONG_XT", "LONG", stop=longSL, limit=longTP)
+    reason = sqzRelease ? "Supertrend Bull + Squeeze Breakout + RSI " + str.tostring(math.round(rsi, 1)) : "Supertrend Bull + Momentum Continuation + RSI " + str.tostring(math.round(rsi, 1))
+    alertMsg = '{"symbol":"BTCUSD","action":"BUY","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(longSL, 0)) + ',"tp":' + str.tostring(math.round(longTP, 0)) + ',"reason":"' + reason + '","strategy":"BTC_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    alert(alertMsg, alert.freq_once_per_bar_close)
 
 if shortSignal and strategy.position_size >= 0
     strategy.entry("SHORT", strategy.short)
     strategy.exit("SHORT_XT", "SHORT", stop=shortSL, limit=shortTP)
-
-// ── Alerts → WhatsApp ─────────────────────────────────────────
-alertcondition(longSignal, title="BTC BUY Signal",
-  message='{"symbol":"BTCUSD","action":"BUY","price":{{close}},"sl":' +
-    str.tostring(math.round(close - atr * slMult, 0)) +
-    ',"tp":' + str.tostring(math.round(close + atr * tpMult, 0)) +
-    ',"reason":"Supertrend Bull + Squeeze Release + RSI ' +
-    str.tostring(math.round(rsi, 1)) + ' + Above VWAP' +
-    (sqzRelease ? " (Squeeze Breakout!)" : " (Continuation)") +
-    '","strategy":"BTC_SCALP_PRO","interval":"{{interval}}"}')
-
-alertcondition(shortSignal, title="BTC SELL Signal",
-  message='{"symbol":"BTCUSD","action":"SELL","price":{{close}},"sl":' +
-    str.tostring(math.round(close + atr * slMult, 0)) +
-    ',"tp":' + str.tostring(math.round(close - atr * tpMult, 0)) +
-    ',"reason":"Supertrend Bear + Squeeze Release + RSI ' +
-    str.tostring(math.round(rsi, 1)) + ' + Below VWAP' +
-    (sqzRelease ? " (Squeeze Breakout!)" : " (Continuation)") +
-    '","strategy":"BTC_SCALP_PRO","interval":"{{interval}}"}')
+    reason = sqzRelease ? "Supertrend Bear + Squeeze Breakout + RSI " + str.tostring(math.round(rsi, 1)) : "Supertrend Bear + Momentum Continuation + RSI " + str.tostring(math.round(rsi, 1))
+    alertMsg = '{"symbol":"BTCUSD","action":"SELL","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(shortSL, 0)) + ',"tp":' + str.tostring(math.round(shortTP, 0)) + ',"reason":"' + reason + '","strategy":"BTC_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    alert(alertMsg, alert.freq_once_per_bar_close)
 
 // ── Visuals ──────────────────────────────────────────────────
 // Supertrend line
-stPlot = plot(stVal, "Supertrend",
-  color = stBull ? color.new(color.lime, 20) : color.new(color.red, 20),
+plot(stVal, "Supertrend",
+  color=stBull ? color.new(color.lime, 20) : color.new(color.red, 20),
   linewidth=2)
 
 // VWAP
 plot(vwap, "VWAP", color=color.new(color.purple, 0), linewidth=2, style=plot.style_stepline)
 
-// BB
-bbUpperPlot = plot(bbUpper, "BB Upper", color=color.new(color.blue, 70), linewidth=1)
-bbLowerPlot = plot(bbLower, "BB Lower", color=color.new(color.blue, 70), linewidth=1)
-fill(bbUpperPlot, bbLowerPlot, color=color.new(color.blue, 95))
+// Bollinger Bands
+bbUp = plot(bbUpper, "BB Upper", color=color.new(color.blue, 70), linewidth=1)
+bbLo = plot(bbLower, "BB Lower", color=color.new(color.blue, 70), linewidth=1)
+fill(bbUp, bbLo, color=color.new(color.blue, 93))
 
-// Squeeze dot on zero line (shown in separate pane — add as indicator separately)
-// Green dot = no squeeze, Red dot = in squeeze
-barcolor(squeeze ? color.new(color.red, 60) : na, title="Squeeze Bar")
+// Squeeze indicator: red bars = in squeeze, normal = free
+barcolor(squeeze ? color.new(color.gray, 40) : na, title="Squeeze")
 
-// Entry markers with SL/TP
+// Entry labels
 plotshape(longSignal,  "BUY",  shape.labelup,   location.belowbar,
-  color=longEntry ? color.lime : color.new(color.lime, 40),
-  text=longEntry ? "⚡BUY" : "↑BUY", textcolor=color.black, size=size.normal)
+  color=longBreak ? color.lime : color.new(color.lime, 50),
+  text=longBreak ? "⚡BUY" : "↑BUY", textcolor=color.black, size=size.normal)
 
 plotshape(shortSignal, "SELL", shape.labeldown, location.abovebar,
-  color=shortEntry ? color.red : color.new(color.red, 40),
-  text=shortEntry ? "⚡SELL" : "↓SELL", textcolor=color.white, size=size.normal)
+  color=shortBreak ? color.red : color.new(color.red, 50),
+  text=shortBreak ? "⚡SELL" : "↓SELL", textcolor=color.white, size=size.normal)
 
-// SL & TP crosses on signal bar
+// SL & TP markers
 plot(longSignal  ? longSL  : na, "Long SL",  color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
 plot(longSignal  ? longTP  : na, "Long TP",  color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
 plot(shortSignal ? shortSL : na, "Short SL", color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
 plot(shortSignal ? shortTP : na, "Short TP", color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
 
 // Background
-bgcolor(stBull and not squeeze ? color.new(color.lime, 97) :
-        stBear and not squeeze ? color.new(color.red,  97) :
-        squeeze                ? color.new(color.gray, 94) : na,
+bgcolor(stBull and not squeeze ? color.new(color.lime, 96) :
+        stBear and not squeeze ? color.new(color.red,  96) :
+        squeeze                ? color.new(color.gray, 93) : na,
   title="Background")
