@@ -76,7 +76,8 @@ function extractSymbol(text) {
 }
 
 function parseCommand(rawText) {
-  const text = rawText.toLowerCase().trim();
+  // Normalize: remove slashes so "GBP/JPY" → "gbpjpy", "EUR/USD" → "eurusd"
+  const text = rawText.toLowerCase().trim().replace(/([a-z]{2,4})\/([a-z]{2,4})/g, '$1$2');
 
   // ── HELP ────────────────────────────────────────────────────────────────────
   if (/\b(help|hi|hello|hey|menu|commands|what can|start)\b/.test(text)) {
