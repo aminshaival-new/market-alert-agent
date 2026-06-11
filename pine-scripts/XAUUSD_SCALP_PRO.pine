@@ -33,10 +33,10 @@ minSepAtr  = input.float(0.25, "Min EMA21-EMA50 separation × ATR", step=0.05, g
 
 grp2 = "Regime Filter (anti-chop)"
 adxLen = input.int(14, "ADX Length", group=grp2)
-adxMin = input.float(23, "Min ADX to trade", step=1, group=grp2)
+adxMin = input.float(24, "Min ADX to trade", step=1, group=grp2)
 
 grp3 = "Liquidity Sweep"
-useSweep   = input.bool(true, "Trade liquidity sweeps", group=grp3)
+useSweep   = input.bool(false, "Trade liquidity sweeps (backtest: no edge — keep off)", group=grp3)
 sweepLook  = input.int(20, "Swing lookback (bars)", group=grp3)
 wickRatio  = input.float(0.55, "Min wick ratio", step=0.05, group=grp3)
 minPierce  = input.float(0.3, "Min pierce beyond swing × ATR", step=0.05, group=grp3)
@@ -44,9 +44,9 @@ minPierce  = input.float(0.3, "Min pierce beyond swing × ATR", step=0.05, group
 grp4 = "Risk (anti-SL-hunt)"
 atrLen   = input.int(14, "ATR Length", group=grp4)
 huntBars = input.int(8,  "Stop beyond extreme of last N bars", group=grp4)
-slBuf    = input.float(0.75, "Extra SL buffer × ATR", step=0.05, group=grp4)
+slBuf    = input.float(0.4, "Extra SL buffer × ATR", step=0.05, group=grp4)
 tp1R     = input.float(1.0, "TP1 at +R (take 50%)", step=0.25, group=grp4)
-tp2R     = input.float(2.0, "TP2 at +R (runner)",   step=0.25, group=grp4)
+tp2R     = input.float(3.0, "TP2 at +R (runner)",   step=0.25, group=grp4)
 
 grp5 = "Filters"
 rsiLen   = input.int(14, "RSI Length", group=grp5)

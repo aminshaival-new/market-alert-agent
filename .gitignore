@@ -4,3 +4,4 @@ node_modules/
 
 # Keep settings.json but strip secrets before committing
 # Credentials live in GitHub Actions Secrets, not here
+backtest/cache/
