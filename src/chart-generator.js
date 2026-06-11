@@ -4,28 +4,73 @@
 
 const settings = require('../config/settings.json');
 
+// TradingView symbol lookup — used by both chart functions
+const TV_SYM_MAP = {
+  'NIFTY': 'NSE:NIFTY', 'BANKNIFTY': 'NSE:BANKNIFTY', 'SENSEX': 'BSE:SENSEX',
+  'GIFTNIFTY': 'NSE:GIFTNIFTY',
+  'XAUUSD': 'TVC:GOLD', 'GOLD': 'TVC:GOLD', 'SILVER': 'TVC:SILVER',
+  'BTCUSD': 'BITSTAMP:BTCUSD', 'ETHUSD': 'BITSTAMP:ETHUSD',
+  'CRUDE': 'TVC:USOIL',
+  'EURUSD': 'FX:EURUSD', 'GBPUSD': 'FX:GBPUSD', 'USDJPY': 'FX:USDJPY',
+  'GBPJPY': 'FX:GBPJPY', 'EURJPY': 'FX:EURJPY', 'AUDUSD': 'FX:AUDUSD',
+  'USDCAD': 'FX:USDCAD', 'USDCHF': 'FX:USDCHF', 'NZDUSD': 'FX:NZDUSD',
+  'GBPAUD': 'FX:GBPAUD', 'EURGBP': 'FX:EURGBP', 'EURCAD': 'FX:EURCAD',
+  'AUDCAD': 'FX:AUDCAD', 'AUDNZD': 'FX:AUDNZD', 'CADJPY': 'FX:CADJPY',
+  'AUDJPY': 'FX:AUDJPY', 'USDINR': 'FX_IDC:USDINR',
+  // F&O stocks
+  'RELIANCE': 'NSE:RELIANCE', 'TCS': 'NSE:TCS', 'INFY': 'NSE:INFY',
+  'HDFCBANK': 'NSE:HDFCBANK', 'ICICIBANK': 'NSE:ICICIBANK', 'SBIN': 'NSE:SBIN',
+  'WIPRO': 'NSE:WIPRO', 'AXISBANK': 'NSE:AXISBANK', 'KOTAKBANK': 'NSE:KOTAKBANK',
+  'BAJFINANCE': 'NSE:BAJFINANCE', 'MARUTI': 'NSE:MARUTI', 'TATAMOTORS': 'NSE:TATAMOTORS',
+  'ADANIENT': 'NSE:ADANIENT', 'BHARTIARTL': 'NSE:BHARTIARTL', 'ONGC': 'NSE:ONGC',
+  'NTPC': 'NSE:NTPC', 'SUNPHARMA': 'NSE:SUNPHARMA', 'TITAN': 'NSE:TITAN',
+  'ASIANPAINT': 'NSE:ASIANPAINT', 'LT': 'NSE:LT', 'ZOMATO': 'NSE:ZOMATO',
+  'IRCTC': 'NSE:IRCTC',
+};
+
+function resolveTV(symbol) {
+  const s = symbol.toUpperCase().replace(/\//g, '');
+  return TV_SYM_MAP[s] || (s.includes(':') ? s : `NSE:${s}`);
+}
+
+// ── Generate a standalone live chart (no analysis needed) ─────────────────────
+async function generateLiveChart(symbol, interval = '15') {
+  const apiKey = process.env.CHARTIMG_KEY || settings.chartimg?.apiKey;
+  if (!apiKey || apiKey.startsWith('SET_VIA') || apiKey === '') {
+    throw new Error('ChartImg API key not configured');
+  }
+
+  const tvSymbol = resolveTV(symbol);
+  const params = new URLSearchParams({
+    symbol:   tvSymbol,
+    interval,
+    theme:    'dark',
+    studies:  'RSI@tv-basicstudies,VWAP@tv-basicstudies,MAExp@tv-basicstudies',
+    width:    '900',
+    height:   '500',
+    key:      apiKey
+  });
+
+  const res = await fetch(
+    `https://api.chart-img.com/v1/tradingview/advanced-chart?${params}`,
+    { signal: AbortSignal.timeout(20000) }
+  );
+  if (!res.ok) throw new Error(`ChartImg error: ${res.status}`);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('image')) throw new Error('ChartImg did not return an image');
+
+  const buf = await res.arrayBuffer();
+  const b64 = Buffer.from(buf).toString('base64');
+  return `data:image/png;base64,${b64}`;
+}
+
 // ── Service 1: ChartImg.com — Real TradingView charts ────────────────────────
 async function generateChartImg(analysis) {
   const apiKey = process.env.CHARTIMG_KEY || settings.chartimg?.apiKey;
   if (!apiKey || apiKey.startsWith('SET_VIA') || apiKey === '') return null;
 
-  const { symbol, direction, snapshot } = analysis;
-
-  // Map our symbol names to TradingView symbols for ChartImg
-  const tvSymMap = {
-    'Nifty 50':         'NSE:NIFTY',
-    'Bank Nifty':       'NSE:BANKNIFTY',
-    'XAU/USD (Gold)':   'TVC:GOLD',
-    'XAG/USD (Silver)': 'TVC:SILVER',
-    'BTC/USD (Bitcoin)':'BITSTAMP:BTCUSD',
-    'Crude Oil (WTI)':  'TVC:USOIL',
-    'USD/INR':          'FX_IDC:USDINR',
-    'EUR/USD':          'FX:EURUSD',
-    'Reliance (RIL)':   'NSE:RELIANCE',
-  };
-
-  const tvSymbol = tvSymMap[symbol] ||
-    (symbol.includes(':') ? symbol : `NSE:${symbol}`);
+  const { symbol } = analysis;
+  const tvSymbol = resolveTV(symbol);
 
   // ChartImg API — generates actual TradingView screenshot
   const params = new URLSearchParams({
@@ -184,4 +229,4 @@ async function generateTradeChart(analysis) {
   }
 }
 
-module.exports = { generateTradeChart };
+module.exports = { generateTradeChart, generateLiveChart };

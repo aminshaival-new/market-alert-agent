@@ -111,6 +111,32 @@ function parseCommand(rawText) {
     return { type: 'SCAN' };
   }
 
+  // ── LIVE CHART ──────────────────────────────────────────────────────────────
+  // "chart NIFTY", "show chart GBP/JPY", "15min chart gold", "candle BTCUSD 1h"
+  if (/\b(chart|candle|candlestick|show chart|live chart|view chart|ohlc|price chart)\b/.test(text)) {
+    const sym = extractSymbol(text);
+    if (sym) {
+      // Extract timeframe — default 15m
+      const tfMap = {
+        '1m': '1', '1min': '1', '1 min': '1', '1 minute': '1',
+        '3m': '3', '3min': '3', '3 min': '3',
+        '5m': '5', '5min': '5', '5 min': '5',
+        '15m': '15', '15min': '15', '15 min': '15',
+        '30m': '30', '30min': '30', '30 min': '30',
+        '1h': '60', '1hr': '60', '1 hour': '60', 'hourly': '60',
+        '2h': '120', '2hr': '120', '2 hour': '120',
+        '4h': '240', '4hr': '240', '4 hour': '240',
+        '1d': 'D', 'daily': 'D', '1 day': 'D', 'day': 'D',
+        '1w': 'W', 'weekly': 'W', '1 week': 'W',
+      };
+      let interval = '15'; // default 15min
+      for (const [key, val] of Object.entries(tfMap)) {
+        if (text.includes(key)) { interval = val; break; }
+      }
+      return { type: 'CHART', symbol: sym, interval };
+    }
+  }
+
   // ── SCALP / TRADE IDEA ──────────────────────────────────────────────────────
   // "Give me scalping idea for RIL"
   // "Trade idea on gold"

@@ -20,6 +20,7 @@ const http = require('http');
 const { parseCommand }                        = require('./command-parser');
 const { listAlerts, addAlert, removeAlert }   = require('./alerts-api');
 const { sendWhatsApp, sendWhatsAppImage }     = require('./whatsapp');
+const { generateLiveChart }                   = require('./chart-generator');
 const { run: runScalp }                       = require('./scalp-alert');
 const { run: runScanner }                     = require('./atlas-scanner');
 const { run: runBriefing }                    = require('./morning-briefing');
@@ -66,14 +67,18 @@ async function processCommand(text, chatId) {
         `🤖 *ATLAS PRO Bot — Commands*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n\n` +
         `📊 *Trade Setups*\n` +
-        `• "scalp NIFTY" — Nifty trade idea\n` +
-        `• "scalp RIL" — Reliance trade idea\n` +
-        `• "scalp GBPJPY" — GBP/JPY forex setup\n` +
+        `• "scalp NIFTY" — Nifty trade idea + chart\n` +
+        `• "scalp GBP/JPY" — GBP/JPY forex setup\n` +
         `• "scalp BTCUSD" — Bitcoin setup\n` +
         `• "gold signal" — Gold trade setup\n\n` +
-        `_Forex: GBPJPY EURUSD GBPUSD USDJPY AUDUSD + crosses_\n` +
-        `_Crypto: BTCUSD ETHUSD_\n` +
-        `_Metals: GOLD SILVER · Energy: CRUDE_\n\n` +
+        `🕯️ *Live Charts*\n` +
+        `• "chart NIFTY" — 15min candle chart\n` +
+        `• "chart GBP/JPY 1h" — 1-hour chart\n` +
+        `• "chart BTCUSD 4h" — 4-hour chart\n` +
+        `• "chart GOLD daily" — Daily chart\n` +
+        `_Timeframes: 1m 3m 5m 15m 30m 1h 2h 4h daily weekly_\n\n` +
+        `_Symbols: NIFTY BANKNIFTY SENSEX · GBPJPY EURUSD USDJPY + crosses_\n` +
+        `_Crypto: BTCUSD ETHUSD · Metals: GOLD SILVER · Energy: CRUDE_\n\n` +
         `📡 *Market Scan*\n` +
         `• "scan" — full F&O + multi-asset scan\n` +
         `• "signals" — same as scan\n\n` +
@@ -89,6 +94,20 @@ async function processCommand(text, chatId) {
         `_Powered by ATLAS PRO · Claude AI_`
       );
       break;
+
+    case 'CHART': {
+      const tfLabel = { '1':'1min','3':'3min','5':'5min','15':'15min','30':'30min',
+        '60':'1H','120':'2H','240':'4H','D':'Daily','W':'Weekly' }[cmd.interval] || cmd.interval+'min';
+      await sendWhatsApp(`📊 Fetching live ${tfLabel} chart for *${cmd.symbol}*...`);
+      try {
+        const chartData = await generateLiveChart(cmd.symbol, cmd.interval);
+        await sendWhatsAppImage(chartData, `📊 ${cmd.symbol} · ${tfLabel} · Live TradingView Chart`);
+      } catch (err) {
+        log.error('[Bot] Chart error: ' + err.message);
+        await sendWhatsApp(`❌ Chart failed for ${cmd.symbol}: ${err.message}\n\n_Try: "scalp ${cmd.symbol}" for full analysis with chart_`);
+      }
+      break;
+    }
 
     case 'SCALP': {
       await sendWhatsApp(`⏳ Fetching live data for *${cmd.symbol}*...\n_Analysis takes ~10 seconds_`);
