@@ -1,8 +1,8 @@
 // ORDERFLOW SCANNER — Gold (PAXG) 15m delta-confirmed breakout
 // The only lower-TF strategy that passed 4/4 regime walk-forward at
 // realistic costs (backtest/orderflow.js):
-//   config: 96-bar range break + taker-delta z-score >= 1.5, LONG-only,
-//   SL 1.5×ATR, TP 4.5×ATR (RR 3) — minPF 1.07, +514 pts/yr, 181 tr/yr
+//   config: 96-bar range break + taker-delta |z| >= 1.5, BOTH dirs,
+//   SL 1.5×ATR, TP 4.5×ATR (RR 3) — minPF 1.05, +677 pts/yr, 325 tr/yr
 // Runs every 15m bar close via bot-server scheduler. TradingView can't
 // compute taker delta, so this lives here, not in Pine.
 
@@ -54,39 +54,46 @@ async function run() {
     sd = Math.sqrt(sd / Z_LOOK) || 1;
     const z = (delta[i] - m) / sd;
 
-    // 96-bar high (excluding current bar)
-    let hh = -Infinity;
-    for (let j = i - RANGE; j < i; j++) hh = Math.max(hh, bars[j].h);
+    // 96-bar high/low (excluding current bar)
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - RANGE; j < i; j++) { hh = Math.max(hh, bars[j].h); ll = Math.min(ll, bars[j].l); }
 
-    const breakout = b.c > hh && z >= Z_MIN;
-    if (!breakout) return { signal: false };
+    const buySignal  = b.c > hh && z >= Z_MIN;
+    const sellSignal = b.c < ll && z <= -Z_MIN;
+    if (!buySignal && !sellSignal) return { signal: false };
 
     lastSignalBarTime = b.t;
+    const dir   = buySignal ? 1 : -1;
     const entry = b.c;
-    const sl = entry - atr * SL_ATR;
-    const tp = entry + atr * SL_ATR * RR;
+    const sl = entry - dir * atr * SL_ATR;
+    const tp = entry + dir * atr * SL_ATR * RR;
     const ist = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
+    const emoji   = buySignal ? '🟢' : '🔴';
+    const action  = buySignal ? 'BUY' : 'SELL';
+    const flowTxt = buySignal
+      ? `96-bar high broken with aggressive buy flow (delta z=+${z.toFixed(1)}σ — strong taker buying)`
+      : `96-bar low broken with aggressive sell flow (delta z=${z.toFixed(1)}σ — strong taker selling)`;
+
     const msg =
-      `🟢 *GOLD ORDERFLOW BUY*\n_${ist} IST · Delta Breakout 15m_\n\n` +
+      `${emoji} *GOLD ORDERFLOW ${action}*\n_${ist} IST · Delta Breakout 15m_\n\n` +
       `*Entry*  $${entry.toFixed(2)}\n` +
       `*SL*     $${sl.toFixed(2)}  _(1.5×ATR)_\n` +
       `*TP*     $${tp.toFixed(2)}  _(RR 1:3)_\n\n` +
-      `*Why:* 96-bar high broken with aggressive buy flow ` +
-      `(delta z=${z.toFixed(1)}σ — strong taker buying)\n\n` +
+      `*Why:* ${flowTxt}\n\n` +
       `_Validated: 4/4 regimes profitable, 1yr walk-forward_\n` +
       `_⚠️ Verify before entry. Not financial advice._`;
 
-    log.info(`[Orderflow] GOLD BUY signal @ ${entry} (z=${z.toFixed(2)})`);
+    log.info(`[Orderflow] GOLD ${action} signal @ ${entry} (z=${z.toFixed(2)})`);
 
     try {
       const chart = await generateLiveChart('GOLD', '15');
-      await sendWhatsAppImage(chart, `🟢 GOLD Delta Breakout | Entry $${entry.toFixed(2)} | SL $${sl.toFixed(2)} | TP $${tp.toFixed(2)}`);
+      await sendWhatsAppImage(chart, `${emoji} GOLD Delta Breakout ${action} | Entry $${entry.toFixed(2)} | SL $${sl.toFixed(2)} | TP $${tp.toFixed(2)}`);
       await new Promise(r => setTimeout(r, 1000));
     } catch (e) { log.error('[Orderflow] Chart failed: ' + e.message); }
 
     await sendWhatsApp(msg);
-    return { signal: true, entry, sl, tp, z };
+    return { signal: true, action, entry, sl, tp, z };
   } catch (e) {
     log.error('[Orderflow] Scanner error: ' + e.message);
     return { signal: false, error: e.message };
