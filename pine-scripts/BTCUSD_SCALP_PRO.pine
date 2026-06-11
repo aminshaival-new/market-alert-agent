@@ -1,19 +1,19 @@
 //@version=6
 // ============================================================
-// ATLAS PRO — BTCUSD Scalping Strategy v4 "KILLSHOT"
-// Fixes vs v3:
-//   • na-volume guard (works on any feed)
-//   • Anti-SL-hunt: stop beyond wick extreme of last N bars
-//     + deep ATR buffer — BTC is the most stop-hunted market
-//   • Partial exit: 50% at +1R then SL → breakeven.
-//     Hunt-then-target now ends GREEN or FLAT, never red.
-//   • Exits frozen at entry — tester-accurate
+// ATLAS PRO — BTCUSD Scalping Strategy v5 "KILLSHOT"
+// Fixes vs v4:
+//   • BACKTEST FIX: percent-of-equity sizing rounded to zero
+//     contracts → tester showed no trades. Fixed 0.5 BTC sizing.
+//   • FALSE SIGNAL FIX: sweeps need ADX trending + deep pierce
+//     (≥ 0.3 ATR); pullbacks need EMA separation + slope agree;
+//     10-bar cooldown between signals
+//   • CLEAN CHART: only latest trade's SL/TP drawings kept
 // Timeframe : 5m or 15m | Asset: BTCUSD
 // ============================================================
-strategy("ATLAS PRO · BTCUSD Killshot v4", shorttitle="ATLAS·BTC·v4",
+strategy("ATLAS PRO · BTCUSD Killshot v5", shorttitle="ATLAS·BTC·v5",
   overlay=true, pyramiding=0,
-  default_qty_type=strategy.percent_of_equity, default_qty_value=2,
-  initial_capital=10000, commission_type=strategy.commission.percent,
+  default_qty_type=strategy.fixed, default_qty_value=0.5,
+  initial_capital=100000, commission_type=strategy.commission.percent,
   commission_value=0.05, slippage=10,
   calc_on_every_tick=false, process_orders_on_close=true)
 
@@ -24,15 +24,17 @@ emaMidLen  = input.int(21, "Pullback EMA", group=grp1)
 emaSlowLen = input.int(50, "Slow EMA", group=grp1)
 htfTF      = input.timeframe("60", "HTF Trend Timeframe", group=grp1)
 htfEmaLen  = input.int(50, "HTF EMA Length", group=grp1)
+minSepAtr  = input.float(0.25, "Min EMA21-EMA50 separation × ATR", step=0.05, group=grp1)
 
 grp2 = "Regime Filter (anti-chop)"
 adxLen = input.int(14, "ADX Length", group=grp2)
-adxMin = input.float(20, "Min ADX to trade", step=1, group=grp2)
+adxMin = input.float(21, "Min ADX to trade", step=1, group=grp2)
 
 grp3 = "Liquidity Sweep"
 useSweep  = input.bool(true, "Trade liquidity sweeps", group=grp3)
 sweepLook = input.int(20, "Swing lookback (bars)", group=grp3)
-wickRatio = input.float(0.45, "Min wick ratio", step=0.05, group=grp3)
+wickRatio = input.float(0.5, "Min wick ratio", step=0.05, group=grp3)
+minPierce = input.float(0.3, "Min pierce beyond swing × ATR", step=0.05, group=grp3)
 
 grp4 = "Risk (anti-SL-hunt)"
 atrLen   = input.int(14, "ATR Length", group=grp4)
@@ -42,10 +44,14 @@ tp1R     = input.float(1.0, "TP1 at +R (take 50%)", step=0.25, group=grp4)
 tp2R     = input.float(2.0, "TP2 at +R (runner)",   step=0.25, group=grp4)
 
 grp5 = "Filters"
-rsiLen  = input.int(14, "RSI Length", group=grp5)
-useVol  = input.bool(true, "Volume confirmation", group=grp5)
-volMult = input.float(1.15, "Volume × avg", step=0.05, group=grp5)
+rsiLen   = input.int(14, "RSI Length", group=grp5)
+useVol   = input.bool(true, "Volume confirmation", group=grp5)
+volMult  = input.float(1.15, "Volume × avg", step=0.05, group=grp5)
+cooldown = input.int(10, "Min bars between signals", group=grp5)
 maxSpreadAtr = input.float(3.0, "Skip cascade candles > × ATR", step=0.25, group=grp5)
+
+grp6 = "Display"
+showLabels = input.bool(true, "Show SL/TP labels (latest trade only)", group=grp6)
 
 // ── Indicators ───────────────────────────────────────────────
 emaF  = ta.ema(close, emaFastLen)
@@ -67,8 +73,16 @@ hasVolume = not na(volume) and not na(vol20) and vol20 > 0
 volOK     = not useVol or not hasVolume or volume > vol20 * volMult
 rangeOK   = (high - low) < atr * maxSpreadAtr
 
-bullStack = emaF > emaM and emaM > emaS and close > emaS
-bearStack = emaF < emaM and emaM < emaS and close < emaS
+emaSep    = math.abs(emaM - emaS)
+sepOK     = emaSep >= atr * minSepAtr
+slopeUp   = emaM > emaM[3]
+slopeDown = emaM < emaM[3]
+
+bullStack = emaF > emaM and emaM > emaS and close > emaS and sepOK and slopeUp
+bearStack = emaF < emaM and emaM < emaS and close < emaS and sepOK and slopeDown
+
+var int lastSigBar = -9999
+coolOK = bar_index - lastSigBar >= cooldown
 
 // ── SETUP A: Pullback continuation ───────────────────────────
 touchedEmaM_L = low <= emaM and close > emaM
@@ -79,24 +93,26 @@ touchedEmaM_S = high >= emaM and close < emaM
 reclaimBear   = close < open and close < emaF
 pullbackShort = bearStack and htfBear and trending and touchedEmaM_S and reclaimBear and rsi < 55 and rsi > 28
 
-// ── SETUP B: Liquidity sweep reversal ────────────────────────
+// ── SETUP B: Liquidity sweep reversal (tightened) ────────────
 swingLow  = ta.lowest(low[1], sweepLook)
 swingHigh = ta.highest(high[1], sweepLook)
 candleRange = high - low
 lowerWick = math.min(open, close) - low
 upperWick = high - math.max(open, close)
 
-sweepLong  = useSweep and htfBull and low < swingLow  and close > swingLow  and candleRange > 0 and (lowerWick / candleRange) >= wickRatio and close > open and rsi < 62
-sweepShort = useSweep and htfBear and high > swingHigh and close < swingHigh and candleRange > 0 and (upperWick / candleRange) >= wickRatio and close < open and rsi > 38
+deepLowPierce  = (swingLow - low)   >= atr * minPierce
+deepHighPierce = (high - swingHigh) >= atr * minPierce
 
-// ── Signals (24/7 market) ────────────────────────────────────
-longSignal  = (pullbackLong or sweepLong)  and volOK and rangeOK and strategy.position_size == 0
-shortSignal = (pullbackShort or sweepShort) and volOK and rangeOK and strategy.position_size == 0
+sweepLong  = useSweep and htfBull and trending and low < swingLow  and close > swingLow  and deepLowPierce  and candleRange > 0 and (lowerWick / candleRange) >= wickRatio and close > open and rsi < 62
+sweepShort = useSweep and htfBear and trending and high > swingHigh and close < swingHigh and deepHighPierce and candleRange > 0 and (upperWick / candleRange) >= wickRatio and close < open and rsi > 38
 
-// ── ANTI-HUNT STOPS ──────────────────────────────────────────
+// ── Signals ──────────────────────────────────────────────────
+longSignal  = (pullbackLong or sweepLong)  and volOK and rangeOK and coolOK and strategy.position_size == 0
+shortSignal = (pullbackShort or sweepShort) and volOK and rangeOK and coolOK and strategy.position_size == 0
+
+// ── Anti-hunt stops ──────────────────────────────────────────
 longSLcalc  = ta.lowest(low, huntBars)  - atr * slBuf
 shortSLcalc = ta.highest(high, huntBars) + atr * slBuf
-
 longRisk  = close - longSLcalc
 shortRisk = shortSLcalc - close
 
@@ -106,6 +122,27 @@ var float slPx    = na
 var float tp1Px   = na
 var float tp2Px   = na
 var bool  beMoved = false
+var line  slLine  = na
+var line  tp1Line = na
+var line  tp2Line = na
+var label slLab   = na
+var label tp1Lab  = na
+var label tp2Lab  = na
+
+drawLevels() =>
+    line.delete(slLine)
+    line.delete(tp1Line)
+    line.delete(tp2Line)
+    label.delete(slLab)
+    label.delete(tp1Lab)
+    label.delete(tp2Lab)
+    sl  = line.new(bar_index, slPx,  bar_index + 12, slPx,  color=color.red,    width=2, style=line.style_dashed)
+    t1  = line.new(bar_index, tp1Px, bar_index + 12, tp1Px, color=color.yellow, width=1, style=line.style_dotted)
+    t2  = line.new(bar_index, tp2Px, bar_index + 12, tp2Px, color=color.lime,   width=2, style=line.style_dashed)
+    slL = showLabels ? label.new(bar_index + 12, slPx,  "SL "  + str.tostring(math.round(slPx,  0)), style=label.style_label_left, color=color.new(color.red,   25), textcolor=color.white, size=size.tiny) : na
+    t1L = showLabels ? label.new(bar_index + 12, tp1Px, "TP1 " + str.tostring(math.round(tp1Px, 0)), style=label.style_label_left, color=color.new(color.olive, 25), textcolor=color.white, size=size.tiny) : na
+    t2L = showLabels ? label.new(bar_index + 12, tp2Px, "TP2 " + str.tostring(math.round(tp2Px, 0)), style=label.style_label_left, color=color.new(color.green, 25), textcolor=color.white, size=size.tiny) : na
+    [sl, t1, t2, slL, t1L, t2L]
 
 if longSignal and longRisk > atr * 0.3
     entryPx := close
@@ -113,9 +150,17 @@ if longSignal and longRisk > atr * 0.3
     tp1Px   := close + longRisk * tp1R
     tp2Px   := close + longRisk * tp2R
     beMoved := false
+    lastSigBar := bar_index
     strategy.entry("LONG", strategy.long)
+    [a, b, c, d, e, f] = drawLevels()
+    slLine := a
+    tp1Line := b
+    tp2Line := c
+    slLab := d
+    tp1Lab := e
+    tp2Lab := f
     setupName = sweepLong ? "Liquidity Sweep Reversal" : "Trend Pullback EMA21"
-    alertMsg = '{"symbol":"BTCUSD","action":"BUY","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(slPx, 0)) + ',"tp":' + str.tostring(math.round(tp2Px, 0)) + ',"reason":"' + setupName + ' | TP1 ' + str.tostring(math.round(tp1Px, 0)) + ' (50%) | HTF Bull | ADX ' + str.tostring(math.round(adxVal, 1)) + '","strategy":"BTC_KILLSHOT_v4","interval":"' + timeframe.period + '"}'
+    alertMsg = '{"symbol":"BTCUSD","action":"BUY","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(slPx, 0)) + ',"tp":' + str.tostring(math.round(tp2Px, 0)) + ',"reason":"' + setupName + ' | TP1 ' + str.tostring(math.round(tp1Px, 0)) + ' (50%) | ADX ' + str.tostring(math.round(adxVal, 1)) + '","strategy":"BTC_KILLSHOT_v5","interval":"' + timeframe.period + '"}'
     alert(alertMsg, alert.freq_once_per_bar_close)
 
 if shortSignal and shortRisk > atr * 0.3
@@ -124,12 +169,20 @@ if shortSignal and shortRisk > atr * 0.3
     tp1Px   := close - shortRisk * tp1R
     tp2Px   := close - shortRisk * tp2R
     beMoved := false
+    lastSigBar := bar_index
     strategy.entry("SHORT", strategy.short)
+    [a, b, c, d, e, f] = drawLevels()
+    slLine := a
+    tp1Line := b
+    tp2Line := c
+    slLab := d
+    tp1Lab := e
+    tp2Lab := f
     setupName = sweepShort ? "Liquidity Sweep Reversal" : "Trend Pullback EMA21"
-    alertMsg = '{"symbol":"BTCUSD","action":"SELL","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(slPx, 0)) + ',"tp":' + str.tostring(math.round(tp2Px, 0)) + ',"reason":"' + setupName + ' | TP1 ' + str.tostring(math.round(tp1Px, 0)) + ' (50%) | HTF Bear | ADX ' + str.tostring(math.round(adxVal, 1)) + '","strategy":"BTC_KILLSHOT_v4","interval":"' + timeframe.period + '"}'
+    alertMsg = '{"symbol":"BTCUSD","action":"SELL","price":' + str.tostring(math.round(close, 0)) + ',"sl":' + str.tostring(math.round(slPx, 0)) + ',"tp":' + str.tostring(math.round(tp2Px, 0)) + ',"reason":"' + setupName + ' | TP1 ' + str.tostring(math.round(tp1Px, 0)) + ' (50%) | ADX ' + str.tostring(math.round(adxVal, 1)) + '","strategy":"BTC_KILLSHOT_v5","interval":"' + timeframe.period + '"}'
     alert(alertMsg, alert.freq_once_per_bar_close)
 
-// TP1 filled (position halved) → SL to breakeven
+// TP1 filled → SL to breakeven
 if strategy.position_size != 0 and not beMoved
     if math.abs(strategy.position_size) < math.abs(strategy.position_size[1])
         slPx    := entryPx
@@ -143,23 +196,13 @@ if strategy.position_size < 0
     strategy.exit("S_TP2", "SHORT", qty_percent=100, stop=slPx, limit=tp2Px)
 
 // ── Visuals ──────────────────────────────────────────────────
-plot(emaF, "EMA 9",  color=color.new(color.lime,   30), linewidth=1)
-plot(emaM, "EMA 21", color=color.new(color.yellow, 10), linewidth=2)
-plot(emaS, "EMA 50", color=color.new(color.orange, 10), linewidth=2)
+plot(emaM, "EMA 21", color=color.new(color.yellow, 20), linewidth=2)
+plot(emaS, "EMA 50", color=color.new(color.orange, 20), linewidth=2)
 
-plotshape(pullbackLong  and longSignal,  "PB BUY",   shape.labelup,   location.belowbar, color.lime,   text="BUY",        textcolor=color.black, size=size.small)
-plotshape(sweepLong     and longSignal,  "SWP BUY",  shape.labelup,   location.belowbar, color.aqua,   text="SWEEP\nBUY", textcolor=color.black, size=size.small)
-plotshape(pullbackShort and shortSignal, "PB SELL",  shape.labeldown, location.abovebar, color.red,    text="SELL",       textcolor=color.white, size=size.small)
-plotshape(sweepShort    and shortSignal, "SWP SELL", shape.labeldown, location.abovebar, color.orange, text="SWEEP\nSELL",textcolor=color.white, size=size.small)
+plotshape(pullbackLong  and longSignal,  "PB BUY",   shape.labelup,   location.belowbar, color.lime,   text="BUY",  textcolor=color.black, size=size.small)
+plotshape(sweepLong     and longSignal,  "SWP BUY",  shape.labelup,   location.belowbar, color.aqua,   text="SWP▲", textcolor=color.black, size=size.small)
+plotshape(pullbackShort and shortSignal, "PB SELL",  shape.labeldown, location.abovebar, color.red,    text="SELL", textcolor=color.white, size=size.small)
+plotshape(sweepShort    and shortSignal, "SWP SELL", shape.labeldown, location.abovebar, color.orange, text="SWP▼", textcolor=color.white, size=size.small)
 
-if (longSignal and longRisk > atr * 0.3) or (shortSignal and shortRisk > atr * 0.3)
-    line.new(bar_index, slPx,  bar_index + 10, slPx,  color=color.red,    width=2, style=line.style_dashed)
-    line.new(bar_index, tp1Px, bar_index + 10, tp1Px, color=color.yellow, width=1, style=line.style_dotted)
-    line.new(bar_index, tp2Px, bar_index + 10, tp2Px, color=color.lime,   width=2, style=line.style_dashed)
-    label.new(bar_index + 10, slPx,  "SL "  + str.tostring(math.round(slPx,  0)), style=label.style_label_left, color=color.new(color.red,   20), textcolor=color.white, size=size.small)
-    label.new(bar_index + 10, tp1Px, "TP1 " + str.tostring(math.round(tp1Px, 0)), style=label.style_label_left, color=color.new(color.olive, 20), textcolor=color.white, size=size.small)
-    label.new(bar_index + 10, tp2Px, "TP2 " + str.tostring(math.round(tp2Px, 0)), style=label.style_label_left, color=color.new(color.green, 20), textcolor=color.white, size=size.small)
-
-bgcolor(trending and htfBull and bullStack ? color.new(color.lime, 94) :
-        trending and htfBear and bearStack ? color.new(color.red,  94) :
-        not trending ? color.new(color.gray, 96) : na, title="Regime")
+bgcolor(trending and htfBull and bullStack ? color.new(color.lime, 95) :
+        trending and htfBear and bearStack ? color.new(color.red,  95) : na, title="Regime")
