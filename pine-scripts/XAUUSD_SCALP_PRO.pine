@@ -1,108 +1,192 @@
 //@version=6
 // ============================================================
-// ATLAS PRO — XAUUSD Scalping Strategy v2
-// Logic : EMA Ribbon (8/21/55) + RSI + VWAP + ATR Risk
+// ATLAS PRO — XAUUSD Scalping Strategy v3 "KILLSHOT"
+// Core edge:
+//   1. HTF trend filter (1H EMA50) — only trade WITH the bigger flow
+//   2. ADX regime filter — refuses to trade chop (kills false signals)
+//   3. Pullback entry — buy dips to EMA21 in uptrend, not late crossovers
+//   4. Liquidity sweep detection — trades the stop-hunt reversal
+//      (smart money manipulation: wick beyond swing low → close back)
+//   5. Structure SL (swing) + 1:2 TP + breakeven trail
 // Timeframe : 5m or 15m | Asset: XAUUSD (Gold)
-// Alert : Sends JSON to Railway bot → WhatsApp + Chart
+// Alert : JSON → Railway bot → WhatsApp + chart
 // ============================================================
-strategy("ATLAS PRO · XAUUSD Scalp", shorttitle="ATLAS·GOLD",
-  overlay=true, margin_long=100, margin_short=100,
-  default_qty_type=strategy.percent_of_equity, default_qty_value=1,
+strategy("ATLAS PRO · XAUUSD Killshot", shorttitle="ATLAS·GOLD·v3",
+  overlay=true,
+  default_qty_type=strategy.percent_of_equity, default_qty_value=2,
   initial_capital=10000, commission_type=strategy.commission.percent,
-  commission_value=0.02, slippage=2)
+  commission_value=0.02, slippage=2,
+  calc_on_every_tick=false, process_orders_on_close=true)
 
 // ── Inputs ───────────────────────────────────────────────────
-grp1 = "EMA Settings"
-emaFast  = input.int(8,   "Fast EMA",  minval=1, group=grp1)
-emaMid   = input.int(21,  "Mid EMA",   minval=1, group=grp1)
-emaSlow  = input.int(55,  "Slow EMA",  minval=1, group=grp1)
+grp1 = "Trend Engine"
+emaFastLen = input.int(9,  "Fast EMA", group=grp1)
+emaMidLen  = input.int(21, "Pullback EMA", group=grp1)
+emaSlowLen = input.int(50, "Slow EMA", group=grp1)
+htfTF      = input.timeframe("60", "HTF Trend Timeframe", group=grp1)
+htfEmaLen  = input.int(50, "HTF EMA Length", group=grp1)
 
-grp2 = "RSI Settings"
-rsiLen   = input.int(14,  "RSI Length",minval=1, group=grp2)
-rsiBull  = input.int(52,  "Bull Zone ≥",         group=grp2)
-rsiBear  = input.int(48,  "Bear Zone ≤",         group=grp2)
-rsiOB    = input.int(72,  "Overbought — skip",   group=grp2)
-rsiOS    = input.int(28,  "Oversold  — skip",    group=grp2)
+grp2 = "Regime Filter (anti-chop)"
+adxLen     = input.int(14, "ADX Length", group=grp2)
+adxMin     = input.float(22, "Min ADX to trade", step=1, group=grp2)
 
-grp3 = "Risk (ATR-based)"
-atrLen   = input.int(14,   "ATR Length",          group=grp3)
-slMult   = input.float(1.2,"SL × ATR", step=0.1, group=grp3)
-tpMult   = input.float(2.4,"TP × ATR", step=0.1, group=grp3)
+grp3 = "Liquidity Sweep (manipulation)"
+useSweep   = input.bool(true, "Trade liquidity sweeps", group=grp3)
+sweepLook  = input.int(20, "Swing lookback (bars)", group=grp3)
+wickRatio  = input.float(0.5, "Min wick ratio of candle", step=0.05, group=grp3)
 
-grp4 = "Filters"
-useVWAP  = input.bool(true, "VWAP Filter",           group=grp4)
-useVol   = input.bool(true, "Volume Spike Filter",   group=grp4)
-volMult  = input.float(1.3, "Volume Spike ×",step=0.1,group=grp4)
-useSess  = input.bool(true, "London + NY Session Only",group=grp4)
+grp4 = "Risk Management"
+atrLen     = input.int(14, "ATR Length", group=grp4)
+slBuf      = input.float(0.3, "SL buffer × ATR beyond swing", step=0.1, group=grp4)
+rrRatio    = input.float(2.0, "Take Profit R multiple", step=0.25, group=grp4)
+beTrigger  = input.float(1.0, "Move SL to breakeven at +R", step=0.25, group=grp4)
 
-// ── Indicators ───────────────────────────────────────────────
-f    = ta.ema(close, emaFast)
-m    = ta.ema(close, emaMid)
-s    = ta.ema(close, emaSlow)
-rsi  = ta.rsi(close, rsiLen)
-atr  = ta.atr(atrLen)
-vwap = ta.vwap(hlc3)
-vol20= ta.sma(volume, 20)
+grp5 = "Filters"
+rsiLen     = input.int(14, "RSI Length", group=grp5)
+useSess    = input.bool(true, "London + NY only", group=grp5)
+useVol     = input.bool(true, "Volume confirmation", group=grp5)
+volMult    = input.float(1.1, "Volume × avg", step=0.1, group=grp5)
+maxSpreadAtr = input.float(2.5, "Skip if candle range > × ATR (news spike)", step=0.25, group=grp5)
 
-// ── Session Filter (times in exchange TZ — adjust if needed) ─
-// London: 08:00–17:00 UTC | NY: 13:00–22:00 UTC
-londonOpen = time(timeframe.period, "0800-1700", "UTC")
-nyOpen     = time(timeframe.period, "1300-2200", "UTC")
-inSession  = not useSess or (not na(londonOpen) or not na(nyOpen))
+// ── Core indicators ──────────────────────────────────────────
+emaF  = ta.ema(close, emaFastLen)
+emaM  = ta.ema(close, emaMidLen)
+emaS  = ta.ema(close, emaSlowLen)
+atr   = ta.atr(atrLen)
+rsi   = ta.rsi(close, rsiLen)
+vol20 = ta.sma(volume, 20)
 
-// ── Conditions ───────────────────────────────────────────────
-bullTrend  = f > m and m > s
-bearTrend  = f < m and m < s
+// HTF trend — no repaint: confirmed bars only
+htfEma   = request.security(syminfo.tickerid, htfTF, ta.ema(close, htfEmaLen)[1], barmerge.gaps_off, barmerge.lookahead_on)
+htfClose = request.security(syminfo.tickerid, htfTF, close[1], barmerge.gaps_off, barmerge.lookahead_on)
+htfBull  = htfClose > htfEma
+htfBear  = htfClose < htfEma
 
-aboveVWAP  = not useVWAP or close > vwap
-belowVWAP  = not useVWAP or close < vwap
+// ADX (manual, since ta.dmi gives tuple)
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+trending = adxVal >= adxMin
 
-volSpike   = not useVol or volume > vol20 * volMult
+// ── Session filter ───────────────────────────────────────────
+londonSess = time(timeframe.period, "0700-1600", "UTC")
+nySess     = time(timeframe.period, "1300-2100", "UTC")
+inSession  = not useSess or (not na(londonSess) or not na(nySess))
 
-rsiBullOK  = rsi >= rsiBull and rsi < rsiOB
-rsiBearOK  = rsi <= rsiBear and rsi > rsiOS
+// ── Volume + news-spike guard ────────────────────────────────
+volOK   = not useVol or volume > vol20 * volMult
+rangeOK = (high - low) < atr * maxSpreadAtr  // skip violent news candles
 
-bullCross  = ta.crossover(f, m)
-bearCross  = ta.crossunder(f, m)
+// ── Local trend state ────────────────────────────────────────
+bullStack = emaF > emaM and emaM > emaS and close > emaS
+bearStack = emaF < emaM and emaM < emaS and close < emaS
 
-// ── Entry Signals ────────────────────────────────────────────
-longEntry  = bullCross and bullTrend and aboveVWAP and rsiBullOK and volSpike and inSession
-shortEntry = bearCross and bearTrend and belowVWAP and rsiBearOK and volSpike and inSession
+// ════════════════════════════════════════════════════════════
+// SETUP A: PULLBACK CONTINUATION (the bread and butter)
+// In a stacked uptrend, price dips to EMA21 zone and reclaims it.
+// Much higher win rate than crossover entries — you buy the dip
+// with trend instead of chasing a late cross.
+// ════════════════════════════════════════════════════════════
+touchedEmaM_L = low <= emaM and close > emaM            // dipped into EMA21, closed back above
+reclaimBull   = close > open and close > emaF            // bullish reclaim candle
+pullbackLong  = bullStack and htfBull and trending and touchedEmaM_L and reclaimBull and rsi > 45 and rsi < 70
 
-// ── Risk Levels ──────────────────────────────────────────────
-longSL  = close - atr * slMult
-longTP  = close + atr * tpMult
-shortSL = close + atr * slMult
-shortTP = close - atr * tpMult
+touchedEmaM_S = high >= emaM and close < emaM
+reclaimBear   = close < open and close < emaF
+pullbackShort = bearStack and htfBear and trending and touchedEmaM_S and reclaimBear and rsi < 55 and rsi > 30
 
-// ── Strategy Execution ───────────────────────────────────────
-if longEntry
+// ════════════════════════════════════════════════════════════
+// SETUP B: LIQUIDITY SWEEP REVERSAL (trades the manipulation)
+// Smart money runs stops below a swing low / above a swing high,
+// then reverses. Signature: candle wicks BEYOND the swing level
+// but CLOSES back inside, with a dominant rejection wick.
+// We enter in the direction of the reversal — with HTF trend only.
+// ════════════════════════════════════════════════════════════
+swingLow  = ta.lowest(low[1], sweepLook)
+swingHigh = ta.highest(high[1], sweepLook)
+
+candleRange = high - low
+lowerWick   = math.min(open, close) - low
+upperWick   = high - math.max(open, close)
+
+sweptLow  = low < swingLow and close > swingLow                  // pierced low, closed back above
+bigLowerWick = candleRange > 0 and (lowerWick / candleRange) >= wickRatio
+sweepLong = useSweep and htfBull and sweptLow and bigLowerWick and close > open and rsi < 60
+
+sweptHigh = high > swingHigh and close < swingHigh
+bigUpperWick = candleRange > 0 and (upperWick / candleRange) >= wickRatio
+sweepShort = useSweep and htfBear and sweptHigh and bigUpperWick and close < open and rsi > 40
+
+// ── Combined signals ─────────────────────────────────────────
+longSignal  = (pullbackLong or sweepLong)  and inSession and volOK and rangeOK and strategy.position_size == 0
+shortSignal = (pullbackShort or sweepShort) and inSession and volOK and rangeOK and strategy.position_size == 0
+
+// ── Structure-based risk levels ──────────────────────────────
+longSLraw  = sweepLong  ? low  - atr * slBuf : math.min(ta.lowest(low, 5),  emaM - atr * slBuf)
+shortSLraw = sweepShort ? high + atr * slBuf : math.max(ta.highest(high, 5), emaM + atr * slBuf)
+
+longRisk   = close - longSLraw
+shortRisk  = shortSLraw - close
+longTPcalc  = close + longRisk  * rrRatio
+shortTPcalc = close - shortRisk * rrRatio
+
+// Persisted trade levels for trailing / visuals
+var float entryPx = na
+var float slPx    = na
+var float tpPx    = na
+var bool  beMoved = false
+
+// ── Execution ────────────────────────────────────────────────
+if longSignal and longRisk > 0
+    entryPx := close
+    slPx    := longSLraw
+    tpPx    := longTPcalc
+    beMoved := false
     strategy.entry("LONG", strategy.long)
-    strategy.exit("LONG_XT", "LONG", stop=longSL, limit=longTP)
-    alertMsg = '{"symbol":"XAUUSD","action":"BUY","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(math.round(longSL, 2), "#.##") + ',"tp":' + str.tostring(math.round(longTP, 2), "#.##") + ',"reason":"EMA Ribbon Bull + RSI ' + str.tostring(math.round(rsi, 1)) + ' + Above VWAP","strategy":"GOLD_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    setupName = sweepLong ? "Liquidity Sweep Reversal (stop-hunt)" : "Trend Pullback to EMA21"
+    alertMsg = '{"symbol":"XAUUSD","action":"BUY","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(slPx, "#.##") + ',"tp":' + str.tostring(tpPx, "#.##") + ',"reason":"' + setupName + ' | HTF 1H Bull | ADX ' + str.tostring(math.round(adxVal, 1)) + ' | RSI ' + str.tostring(math.round(rsi, 1)) + '","strategy":"GOLD_KILLSHOT_v3","interval":"' + timeframe.period + '"}'
     alert(alertMsg, alert.freq_once_per_bar_close)
 
-if shortEntry
+if shortSignal and shortRisk > 0
+    entryPx := close
+    slPx    := shortSLraw
+    tpPx    := shortTPcalc
+    beMoved := false
     strategy.entry("SHORT", strategy.short)
-    strategy.exit("SHORT_XT", "SHORT", stop=shortSL, limit=shortTP)
-    alertMsg = '{"symbol":"XAUUSD","action":"SELL","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(math.round(shortSL, 2), "#.##") + ',"tp":' + str.tostring(math.round(shortTP, 2), "#.##") + ',"reason":"EMA Ribbon Bear + RSI ' + str.tostring(math.round(rsi, 1)) + ' + Below VWAP","strategy":"GOLD_SCALP_PRO","interval":"' + timeframe.period + '"}'
+    setupName = sweepShort ? "Liquidity Sweep Reversal (stop-hunt)" : "Trend Pullback to EMA21"
+    alertMsg = '{"symbol":"XAUUSD","action":"SELL","price":' + str.tostring(close, "#.##") + ',"sl":' + str.tostring(slPx, "#.##") + ',"tp":' + str.tostring(tpPx, "#.##") + ',"reason":"' + setupName + ' | HTF 1H Bear | ADX ' + str.tostring(math.round(adxVal, 1)) + ' | RSI ' + str.tostring(math.round(rsi, 1)) + '","strategy":"GOLD_KILLSHOT_v3","interval":"' + timeframe.period + '"}'
     alert(alertMsg, alert.freq_once_per_bar_close)
 
-// ── Visuals ──────────────────────────────────────────────────
-plot(f,    "EMA 8",  color=color.new(color.lime,   0), linewidth=1)
-plot(m,    "EMA 21", color=color.new(color.yellow, 0), linewidth=2)
-plot(s,    "EMA 55", color=color.new(color.orange, 0), linewidth=2)
-plot(vwap, "VWAP",   color=color.new(color.purple, 0), linewidth=2, style=plot.style_stepline)
+// Breakeven move: at +1R lock entry
+if strategy.position_size > 0 and not beMoved and high >= entryPx + (entryPx - slPx) * beTrigger
+    slPx    := entryPx
+    beMoved := true
+if strategy.position_size < 0 and not beMoved and low <= entryPx - (slPx - entryPx) * beTrigger
+    slPx    := entryPx
+    beMoved := true
 
-// BUY / SELL labels
-plotshape(longEntry,  "BUY",  shape.labelup,   location.belowbar, color.lime, text="BUY",  textcolor=color.black, size=size.normal)
-plotshape(shortEntry, "SELL", shape.labeldown, location.abovebar, color.red,  text="SELL", textcolor=color.white, size=size.normal)
+// Exits (re-issued each bar so trailed SL applies)
+if strategy.position_size > 0
+    strategy.exit("LONG_XT", "LONG", stop=slPx, limit=tpPx)
+if strategy.position_size < 0
+    strategy.exit("SHORT_XT", "SHORT", stop=slPx, limit=tpPx)
 
-// SL & TP on signal bar
-plot(longEntry  ? longSL  : na, "Long SL",  color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
-plot(longEntry  ? longTP  : na, "Long TP",  color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
-plot(shortEntry ? shortSL : na, "Short SL", color=color.new(color.red,  0), style=plot.style_cross, linewidth=3)
-plot(shortEntry ? shortTP : na, "Short TP", color=color.new(color.lime, 0), style=plot.style_cross, linewidth=3)
+// ── Visuals (lines + labels — does NOT distort chart scale) ──
+plot(emaF, "EMA 9",  color=color.new(color.lime,   30), linewidth=1)
+plot(emaM, "EMA 21", color=color.new(color.yellow, 10), linewidth=2)
+plot(emaS, "EMA 50", color=color.new(color.orange, 10), linewidth=2)
 
-// Trend background
-bgcolor(bullTrend ? color.new(color.lime, 95) : bearTrend ? color.new(color.red, 95) : na, title="Trend BG")
+plotshape(pullbackLong  and longSignal,  "PB BUY",   shape.labelup,   location.belowbar, color.lime,   text="BUY",   textcolor=color.black, size=size.small)
+plotshape(sweepLong     and longSignal,  "SWP BUY",  shape.labelup,   location.belowbar, color.aqua,   text="SWEEP\nBUY",  textcolor=color.black, size=size.small)
+plotshape(pullbackShort and shortSignal, "PB SELL",  shape.labeldown, location.abovebar, color.red,    text="SELL",  textcolor=color.white, size=size.small)
+plotshape(sweepShort    and shortSignal, "SWP SELL", shape.labeldown, location.abovebar, color.orange, text="SWEEP\nSELL", textcolor=color.white, size=size.small)
+
+// SL/TP drawn as short lines at signal bar (scale-safe)
+if longSignal or shortSignal
+    line.new(bar_index, slPx, bar_index + 8, slPx, color=color.red,  width=2, style=line.style_dashed)
+    line.new(bar_index, tpPx, bar_index + 8, tpPx, color=color.lime, width=2, style=line.style_dashed)
+    label.new(bar_index + 8, slPx, "SL " + str.tostring(slPx, "#.##"), style=label.style_label_left, color=color.new(color.red, 20),  textcolor=color.white, size=size.small)
+    label.new(bar_index + 8, tpPx, "TP " + str.tostring(tpPx, "#.##"), style=label.style_label_left, color=color.new(color.green, 20), textcolor=color.white, size=size.small)
+
+// Regime shading: only green/red when actually tradeable
+bgcolor(trending and htfBull and bullStack ? color.new(color.lime, 94) :
+        trending and htfBear and bearStack ? color.new(color.red,  94) :
+        not trending ? color.new(color.gray, 96) : na, title="Regime")
