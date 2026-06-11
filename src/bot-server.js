@@ -66,10 +66,14 @@ async function processCommand(text, chatId) {
         `🤖 *ATLAS PRO Bot — Commands*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n\n` +
         `📊 *Trade Setups*\n` +
-        `• "scalp NIFTY" — trade idea for Nifty\n` +
-        `• "scalp RIL" — trade idea for Reliance\n` +
-        `• "trade idea BTCUSD" — Bitcoin setup\n` +
+        `• "scalp NIFTY" — Nifty trade idea\n` +
+        `• "scalp RIL" — Reliance trade idea\n` +
+        `• "scalp GBPJPY" — GBP/JPY forex setup\n` +
+        `• "scalp BTCUSD" — Bitcoin setup\n` +
         `• "gold signal" — Gold trade setup\n\n` +
+        `_Forex: GBPJPY EURUSD GBPUSD USDJPY AUDUSD + crosses_\n` +
+        `_Crypto: BTCUSD ETHUSD_\n` +
+        `_Metals: GOLD SILVER · Energy: CRUDE_\n\n` +
         `📡 *Market Scan*\n` +
         `• "scan" — full F&O + multi-asset scan\n` +
         `• "signals" — same as scan\n\n` +

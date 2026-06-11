@@ -15,16 +15,62 @@ const OPTIONS_SYMBOLS = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
 
 // Symbol aliases → TradingView symbols
 const SYMBOL_MAP = {
-  'XAUUSD':   { tv: 'TVC:GOLD',          name: 'XAU/USD (Gold)',    unit: '$',  dp: 2 },
-  'GOLD':     { tv: 'TVC:GOLD',          name: 'XAU/USD (Gold)',    unit: '$',  dp: 2 },
-  'NIFTY':    { tv: 'NSE:NIFTY',         name: 'Nifty 50',          unit: '₹',  dp: 2 },
-  'BTCUSD':   { tv: 'BITSTAMP:BTCUSD',   name: 'BTC/USD (Bitcoin)', unit: '$',  dp: 2 },
-  'BANKNIFTY':{ tv: 'NSE:BANKNIFTY',     name: 'Bank Nifty',        unit: '₹',  dp: 2 },
-  'EURUSD':   { tv: 'FX:EURUSD',         name: 'EUR/USD',           unit: '',   dp: 5 },
-  'USDINR':   { tv: 'FX_IDC:USDINR',     name: 'USD/INR',           unit: '₹',  dp: 4 },
-  'CRUDE':    { tv: 'TVC:USOIL',         name: 'Crude Oil (WTI)',   unit: '$',  dp: 2 },
-  'SILVER':   { tv: 'TVC:SILVER',        name: 'XAG/USD (Silver)',  unit: '$',  dp: 3 },
-  'RELIANCE': { tv: 'NSE:RELIANCE',      name: 'Reliance (RIL)',    unit: '₹',  dp: 2 },
+  // Indices
+  'NIFTY':     { tv: 'NSE:NIFTY',          name: 'Nifty 50',          unit: '₹', dp: 2 },
+  'BANKNIFTY': { tv: 'NSE:BANKNIFTY',      name: 'Bank Nifty',        unit: '₹', dp: 2 },
+  'SENSEX':    { tv: 'BSE:SENSEX',         name: 'Sensex',            unit: '₹', dp: 2 },
+  'GIFTNIFTY': { tv: 'NSE:GIFTNIFTY',      name: 'Gift Nifty',        unit: '₹', dp: 2 },
+  // Metals
+  'XAUUSD':   { tv: 'TVC:GOLD',            name: 'XAU/USD (Gold)',    unit: '$', dp: 2 },
+  'GOLD':     { tv: 'TVC:GOLD',            name: 'XAU/USD (Gold)',    unit: '$', dp: 2 },
+  'SILVER':   { tv: 'TVC:SILVER',          name: 'XAG/USD (Silver)',  unit: '$', dp: 3 },
+  // Crypto
+  'BTCUSD':   { tv: 'BITSTAMP:BTCUSD',     name: 'BTC/USD (Bitcoin)', unit: '$', dp: 2 },
+  'ETHUSD':   { tv: 'BITSTAMP:ETHUSD',     name: 'ETH/USD (Ethereum)',unit: '$', dp: 2 },
+  // Energy
+  'CRUDE':    { tv: 'TVC:USOIL',           name: 'Crude Oil (WTI)',   unit: '$', dp: 2 },
+  // Forex — majors
+  'EURUSD':   { tv: 'FX:EURUSD',           name: 'EUR/USD',           unit: '',  dp: 5 },
+  'GBPUSD':   { tv: 'FX:GBPUSD',           name: 'GBP/USD',           unit: '',  dp: 5 },
+  'USDJPY':   { tv: 'FX:USDJPY',           name: 'USD/JPY',           unit: '',  dp: 3 },
+  'AUDUSD':   { tv: 'FX:AUDUSD',           name: 'AUD/USD',           unit: '',  dp: 5 },
+  'USDCAD':   { tv: 'FX:USDCAD',           name: 'USD/CAD',           unit: '',  dp: 5 },
+  'USDCHF':   { tv: 'FX:USDCHF',           name: 'USD/CHF',           unit: '',  dp: 5 },
+  'NZDUSD':   { tv: 'FX:NZDUSD',           name: 'NZD/USD',           unit: '',  dp: 5 },
+  'USDINR':   { tv: 'FX_IDC:USDINR',       name: 'USD/INR',           unit: '₹', dp: 4 },
+  // Forex — crosses
+  'GBPJPY':   { tv: 'FX:GBPJPY',           name: 'GBP/JPY',           unit: '',  dp: 3 },
+  'EURJPY':   { tv: 'FX:EURJPY',           name: 'EUR/JPY',           unit: '',  dp: 3 },
+  'GBPAUD':   { tv: 'FX:GBPAUD',           name: 'GBP/AUD',           unit: '',  dp: 5 },
+  'EURGBP':   { tv: 'FX:EURGBP',           name: 'EUR/GBP',           unit: '',  dp: 5 },
+  'EURCAD':   { tv: 'FX:EURCAD',           name: 'EUR/CAD',           unit: '',  dp: 5 },
+  'AUDCAD':   { tv: 'FX:AUDCAD',           name: 'AUD/CAD',           unit: '',  dp: 5 },
+  'AUDNZD':   { tv: 'FX:AUDNZD',           name: 'AUD/NZD',           unit: '',  dp: 5 },
+  'CADJPY':   { tv: 'FX:CADJPY',           name: 'CAD/JPY',           unit: '',  dp: 3 },
+  'AUDJPY':   { tv: 'FX:AUDJPY',           name: 'AUD/JPY',           unit: '',  dp: 3 },
+  // Top F&O Stocks
+  'RELIANCE':  { tv: 'NSE:RELIANCE',       name: 'Reliance (RIL)',    unit: '₹', dp: 2 },
+  'TCS':       { tv: 'NSE:TCS',            name: 'TCS',               unit: '₹', dp: 2 },
+  'INFY':      { tv: 'NSE:INFY',           name: 'Infosys',           unit: '₹', dp: 2 },
+  'HDFCBANK':  { tv: 'NSE:HDFCBANK',       name: 'HDFC Bank',         unit: '₹', dp: 2 },
+  'ICICIBANK': { tv: 'NSE:ICICIBANK',      name: 'ICICI Bank',        unit: '₹', dp: 2 },
+  'SBIN':      { tv: 'NSE:SBIN',           name: 'SBI',               unit: '₹', dp: 2 },
+  'WIPRO':     { tv: 'NSE:WIPRO',          name: 'Wipro',             unit: '₹', dp: 2 },
+  'AXISBANK':  { tv: 'NSE:AXISBANK',       name: 'Axis Bank',         unit: '₹', dp: 2 },
+  'KOTAKBANK': { tv: 'NSE:KOTAKBANK',      name: 'Kotak Bank',        unit: '₹', dp: 2 },
+  'BAJFINANCE':{ tv: 'NSE:BAJFINANCE',     name: 'Bajaj Finance',     unit: '₹', dp: 2 },
+  'MARUTI':    { tv: 'NSE:MARUTI',         name: 'Maruti Suzuki',     unit: '₹', dp: 2 },
+  'TATAMOTORS':{ tv: 'NSE:TATAMOTORS',     name: 'Tata Motors',       unit: '₹', dp: 2 },
+  'ADANIENT':  { tv: 'NSE:ADANIENT',       name: 'Adani Enterprises', unit: '₹', dp: 2 },
+  'BHARTIARTL':{ tv: 'NSE:BHARTIARTL',     name: 'Bharti Airtel',     unit: '₹', dp: 2 },
+  'ONGC':      { tv: 'NSE:ONGC',           name: 'ONGC',              unit: '₹', dp: 2 },
+  'NTPC':      { tv: 'NSE:NTPC',           name: 'NTPC',              unit: '₹', dp: 2 },
+  'SUNPHARMA': { tv: 'NSE:SUNPHARMA',      name: 'Sun Pharma',        unit: '₹', dp: 2 },
+  'TITAN':     { tv: 'NSE:TITAN',          name: 'Titan',             unit: '₹', dp: 2 },
+  'ASIANPAINT':{ tv: 'NSE:ASIANPAINT',     name: 'Asian Paints',      unit: '₹', dp: 2 },
+  'LT':        { tv: 'NSE:LT',             name: 'L&T',               unit: '₹', dp: 2 },
+  'ZOMATO':    { tv: 'NSE:ZOMATO',         name: 'Zomato',            unit: '₹', dp: 2 },
+  'IRCTC':     { tv: 'NSE:IRCTC',          name: 'IRCTC',             unit: '₹', dp: 2 },
 };
 
 function buildTextMessage(a, meta, opt) {

@@ -14,10 +14,25 @@ const SYMBOL_MAP = {
   'ethereum': 'ETHUSD', 'eth': 'ETHUSD', 'ethusd': 'ETHUSD',
   // Energy
   'crude': 'CRUDE', 'crude oil': 'CRUDE', 'oil': 'CRUDE', 'wti': 'CRUDE',
-  // Forex
+  // Forex — majors
   'usdinr': 'USDINR', 'dollar': 'USDINR', 'usd inr': 'USDINR',
-  'eurusd': 'EURUSD', 'euro': 'EURUSD',
-  'gbpusd': 'GBPUSD', 'pound': 'GBPUSD',
+  'eurusd': 'EURUSD', 'euro': 'EURUSD', 'eur usd': 'EURUSD',
+  'gbpusd': 'GBPUSD', 'pound': 'GBPUSD', 'gbp usd': 'GBPUSD', 'cable': 'GBPUSD',
+  'usdjpy': 'USDJPY', 'usd jpy': 'USDJPY', 'dollar yen': 'USDJPY', 'yen': 'USDJPY',
+  'audusd': 'AUDUSD', 'aud usd': 'AUDUSD', 'aussie': 'AUDUSD',
+  'usdcad': 'USDCAD', 'usd cad': 'USDCAD', 'loonie': 'USDCAD',
+  'usdchf': 'USDCHF', 'usd chf': 'USDCHF', 'swissy': 'USDCHF',
+  'nzdusd': 'NZDUSD', 'nzd usd': 'NZDUSD', 'kiwi': 'NZDUSD',
+  // Forex — crosses
+  'gbpjpy': 'GBPJPY', 'gbp jpy': 'GBPJPY', 'pound yen': 'GBPJPY',
+  'eurjpy': 'EURJPY', 'eur jpy': 'EURJPY', 'euro yen': 'EURJPY',
+  'gbpaud': 'GBPAUD', 'gbp aud': 'GBPAUD',
+  'eurgbp': 'EURGBP', 'eur gbp': 'EURGBP',
+  'eurcad': 'EURCAD', 'eur cad': 'EURCAD',
+  'audcad': 'AUDCAD', 'aud cad': 'AUDCAD',
+  'audnzd': 'AUDNZD', 'aud nzd': 'AUDNZD',
+  'cadjpy': 'CADJPY', 'cad jpy': 'CADJPY',
+  'audjpy': 'AUDJPY', 'aud jpy': 'AUDJPY',
   // Top F&O stocks (common names)
   'reliance': 'RELIANCE', 'ril': 'RELIANCE',
   'tcs': 'TCS',
