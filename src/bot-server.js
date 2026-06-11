@@ -191,6 +191,54 @@ function readBody(req) {
   });
 }
 
+// ── TradingView Alert Webhook handler ─────────────────────────────────────────
+// Called when a Pine Script alert fires via webhook to /tv-alert
+// Expected JSON payload from TradingView alert message (JSON format):
+// { "symbol":"XAUUSD", "action":"BUY", "price":2345.5, "sl":2340.0,
+//   "tp":2356.0, "reason":"EMA+RSI+VWAP confluence", "strategy":"GOLD_SCALP" }
+async function handleTVAlert(body) {
+  const { symbol, action, price, sl, tp, reason, strategy, interval } = body;
+  if (!symbol || !action) return;
+
+  const ist = new Date().toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day:'2-digit', month:'short',
+    hour:'2-digit', minute:'2-digit'
+  });
+
+  const dir     = action.toUpperCase();
+  const emoji   = dir === 'BUY' ? '🟢' : '🔴';
+  const dirWord = dir === 'BUY' ? 'BUY / LONG' : 'SELL / SHORT';
+  const risk    = sl && price ? Math.abs(price - sl).toFixed(2) : '—';
+  const reward  = sl && tp && price
+    ? (Math.abs(tp - price) / Math.abs(price - sl)).toFixed(1) : '—';
+  const stratLabel = strategy || 'Pine Script Alert';
+  const tf      = interval || '15m';
+
+  const msg =
+    `${emoji} *${dirWord} ALERT — ${symbol}*\n` +
+    `_${ist} IST · ${stratLabel} · ${tf}_\n\n` +
+    `*Price*  ${price}\n` +
+    (sl  ? `*SL*     ${sl}  _(risk: ${risk} pts)_\n` : '') +
+    (tp  ? `*Target* ${tp}  _(RR 1:${reward})_\n` : '') +
+    (reason ? `\n*Reason:* ${reason}\n` : '') +
+    `\n_⚠️ Verify before entry. Not financial advice._`;
+
+  log.info(`[TV Alert] ${symbol} ${dir} @ ${price} — sending WhatsApp`);
+
+  // Send chart first, then text
+  try {
+    const chartInterval = { '1m':'1','3m':'3','5m':'5','15m':'15','30m':'30',
+      '1h':'60','4h':'240','1d':'D' }[tf] || '15';
+    const chartData = await generateLiveChart(symbol, chartInterval);
+    await sendWhatsAppImage(chartData, `${emoji} ${symbol} ${dir} @ ${price} | SL ${sl} | TP ${tp}`);
+    await new Promise(r => setTimeout(r, 1000));
+  } catch (e) {
+    log.error('[TV Alert] Chart failed: ' + e.message);
+  }
+
+  await sendWhatsApp(msg);
+}
+
 // ── HTTP Server ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
 
@@ -208,6 +256,15 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method !== 'POST') {
     res.writeHead(405); res.end(); return;
+  }
+
+  // ── TradingView Pine Script alert webhook ──────────────────────────────────
+  if (req.url === '/tv-alert') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'received' }));
+    const body = await readBody(req).catch(() => ({}));
+    handleTVAlert(body).catch(e => log.error('[TV Alert] Error: ' + e.message));
+    return;
   }
 
   // Respond to Green API immediately (< 500ms or it retries)
